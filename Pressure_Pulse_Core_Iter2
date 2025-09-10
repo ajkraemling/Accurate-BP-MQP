@@ -1,0 +1,86 @@
+#include <Wire.h>
+#include "Adafruit_MPRLS.h"
+#include <PulseSensorPlayground.h>   
+
+ #include <SD.h>
+
+// ----- Pressure Sensor (MPRLS) -----
+#define RESET_PIN  -1  // Not used
+#define EOC_PIN    -1  // Not used
+Adafruit_MPRLS mpr = Adafruit_MPRLS(RESET_PIN, EOC_PIN);
+
+// ----- Pulse Sensor -----
+//const int PulseWire = A0;            // Use analog pin A0 for PulseSensor
+//const int LED = LED_BUILTIN;         // On-board LED
+//int Threshold = 550;
+
+//  Variables
+int PulseSensorPurplePin = A0;        // Pulse Sensor PURPLE WIRE connected to ANALOG PIN 0
+int LED = LED_BUILTIN;   //  The on-board Arduion LED
+
+File dataFile;
+
+int Signal;                // holds the incoming raw data. Signal value can range from 0-1024
+int Threshold = 580;  
+
+int count = 0;
+
+PulseSensorPlayground pulseSensor;   // Create PulseSensor object
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000); // small delay for stability
+  
+  // ----- Pressure Sensor -----
+  Serial.println("Initializing MPRLS sensor...");
+  if (!mpr.begin()) {
+    Serial.println("Failed to communicate with MPRLS sensor, check wiring?");
+    while (1) delay(10);
+  }
+  Serial.println("MPRLS sensor found!");
+
+//  // ----- Pulse Sensor -----
+//  pulseSensor.analogInput(PulseWire);
+//  pulseSensor.blinkOnPulse(LED);
+//  pulseSensor.setThreshold(Threshold);
+
+//  if (pulseSensor.begin()) {
+//    Serial.println("PulseSensor object created successfully!");
+//  } else {
+//    Serial.println("PulseSensor not detected. Check wiring.");
+//  }
+}
+
+void loop() {
+  // ----- Read Pressure -----
+  float pressure_hPa = mpr.readPressure();
+  float pressure_mmHg = pressure_hPa * 0.75006157584566;
+  float pressure_PSI  = pressure_hPa / 68.947572932;
+
+  // ----- Read Heartbeat -----
+//  if (pulseSensor.sawStartOfBeat()) {
+     
+    Signal = analogRead(PulseSensorPurplePin);  // Read the PulseSensor's value.
+                                              // Assign this value to the "Signal" variable.
+                                              
+    count = count+20;
+    Serial.print(count);
+    Serial.print(" ");
+    Serial.print(Signal);
+    Serial.print(" ");
+    Serial.println(pressure_mmHg);
+    
+    
+//    int myBPM = pulseSensor.getBeatsPerMinute();
+//    Serial.print("♥ Heartbeat detected! BPM: ");
+//    Serial.println(myBPM);
+//    Serial.print("Pressure: ");
+//    Serial.print(pressure_mmHg, 2);
+//    Serial.print(" mmHg  |  ");
+//    Serial.print(pressure_PSI, 3);
+////    Serial.println(" PSI");
+
+//  }
+
+  delay(20); // keep loop responsive (~50 Hz)
+}
