@@ -166,8 +166,8 @@ void calibrate() {
   baselineAverage = sumSignal / sampleCount;  // Store average signal level
   
   // More sensitive thresholds with hysteresis
-  upperThreshold = minSignal + (range * 0.46);
-  lowerThreshold = minSignal + (range * 0.40);  // Lower threshold for beat end
+  upperThreshold = minSignal + (range * 0.44);  
+  lowerThreshold = minSignal + (range * 0.4);  // Lower threshold for beat end
   
   // Get average pressure reading for absolute atmospheric pressure
   atmPressure = atmPressure / sampleCount;
@@ -309,13 +309,13 @@ void checkSignalQuality() {
   // Serial.print("RangeOk: ");
   // Serial.println(rangeOK);
   // Serial.print("heartRateOK: ");
-  // Serial.println(heartRateOK);
+  // Serial.println(heartRateOK);  
   // Serial.print("stabilityOK: ");
   // Serial.println(stabilityOK);
 
   signalQualityGood = rangeOK && heartRateOK && stabilityOK;
   
-  if (!signalQualityGood) {
+  if (!signalQualityGood && DEBUG_MODE) {
     Serial.println("\n*** WARNING: Poor signal quality detected ***");
     if (!rangeOK) Serial.println("    - Signal range issue");
     if (!heartRateOK) Serial.println("    - Heart rate out of normal range or no beats detected");
@@ -342,6 +342,8 @@ void checkSignalQuality() {
  *   4. Periodically check signal quality
  *   5. Output data (format depends on DEBUG_MODE setting)
  */
+bool readingBP = false;
+
 void loop() {
   int rawPPGSignal = analogRead(PulseSensorPurplePin);
   Signal = getFilteredPulse(rawPPGSignal);
@@ -354,6 +356,11 @@ void loop() {
   if (!pressureInitialized) {
     delay(50);
     return;
+  }
+
+  if (pressure_mmHg > 180 && readingBP) {
+    readingBP = false;
+    beatDetected = false;
   }
 
   // For testing  
@@ -370,6 +377,7 @@ void loop() {
   //   Serial.println(maxTest);
   //   while(1) {} // block forever, effectively over
   // }
+
 
   // Pulse sensor beat detection
   unsigned long currentTime = millis();
@@ -397,7 +405,7 @@ void loop() {
     lastBeatTime = currentTime;
   } 
   // Detect falling edge (beat end)
-  else if (Signal < lowerThreshold && beatDetected) {
+  else if ((Signal < lowerThreshold && beatDetected) || (pressure_mmHg > 180)) {
     beatDetected = false;
   }
 
