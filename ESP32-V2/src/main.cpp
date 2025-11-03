@@ -29,6 +29,7 @@
 #include <Wire.h>
 #include "Adafruit_MPRLS.h"
 
+
 #define RESET_PIN -1
 #define EOC_PIN -1
 Adafruit_MPRLS mpr = Adafruit_MPRLS(RESET_PIN, EOC_PIN);
