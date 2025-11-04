@@ -3,7 +3,9 @@
 
 #include <Arduino.h>
 
-typedef struct
+struct CalibrationData;
+
+struct BeatDetectionState
 {
     int upperThreshold;
     int lowerThreshold;
@@ -12,7 +14,45 @@ typedef struct
     unsigned long lastThresholdUpdate;
     int recentBeats[5];
     int beatIndex;
-} BeatDetectionState;
+    // For BP measurement mode
+    int normalUpperThreshold;
+    int normalLowerThreshold;
+    bool bpMeasurementMode;
+};
+
+// Blood pressure measurement states
+typedef enum
+{
+    BP_IDLE,            // Not measuring
+    BP_WAITING_INFLATE, // Waiting for pressure to reach threshold
+    BP_READY,           // Above threshold, ready to detect systolic
+    BP_MEASURING,       // Found systolic, measuring diastolic
+    BP_COMPLETE         // Measurement complete
+} BPMeasurementState;
+
+typedef struct
+{
+    BPMeasurementState state;
+    float systolicPressure;
+    float diastolicPressure;
+    float maxPressureSeen;
+    bool systolicDetected;
+    bool diastolicDetected;
+    bool rangeRecalibrated;
+    unsigned long measurementStartTime;
+} BPMeasurementData;
+
+// Initialize BP measurement data
+void initializeBPMeasurement(BPMeasurementData *bpData);
+
+// Update BP measurement state machine
+void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool heartbeatOccurred);
+
+// Check if ready to start measurement
+bool isReadyForMeasurement(BPMeasurementData *bpData);
+
+// Reset measurement for new reading
+void resetBPMeasurement(BPMeasurementData *bpData);
 
 // Initialize beat detection state
 void initializeBeatDetection(BeatDetectionState *state);
@@ -28,5 +68,8 @@ int getAverageHeartRate(BeatDetectionState *state);
 
 // Check if enough beats for quality assessment
 bool hasEnoughBeats(BeatDetectionState *state);
+
+// Enable/disable BP measurement mode (uses more sensitive thresholds)
+void setBPMeasurementMode(BeatDetectionState *state, bool enabled, int minSignal, int maxSignal);
 
 #endif

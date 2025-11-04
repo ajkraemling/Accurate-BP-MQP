@@ -1,9 +1,10 @@
 #include "calibration.h"
-#include "config.h"
+#include "beat_detection.h"
 #include "Adafruit_MPRLS.h"
+#include "config.h"
 
 void performCalibration(CalibrationData *calibData, BeatDetectionState *beatState,
-                        Adafruit_MPRLS &mpr)
+                        Adafruit_MPRLS *mpr)
 {
     Serial.println("\n=== CALIBRATION ===");
     Serial.print("  Place finger on sensor...\n   ");
@@ -43,7 +44,7 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
         sumSignal += signal;
 
         // Accumulate pressure readings
-        calibData->atmPressure += mpr.readPressure();
+        calibData->atmPressure += mpr->readPressure();
         sampleCount++;
 
         // Progress indicator
@@ -134,4 +135,46 @@ void updateThresholds(CalibrationData *calibData, BeatDetectionState *beatState,
     }
 
     beatState->lastThresholdUpdate = currentTime;
+}
+
+void recalibrateSignalRange(CalibrationData *calibData, BeatDetectionState *beatState)
+{
+    Serial.println("\n[Calibration] Recalibrating signal range for current conditions...");
+
+    // Reset min/max to current extremes - will adapt quickly
+    calibData->minSignal = 4095;
+    calibData->maxSignal = 0;
+    int sampleCount = 0;
+    long sumSignal = 0;
+
+    // Sample for 2 seconds to get new range
+    unsigned long startTime = millis();
+    while (millis() - startTime < 2000)
+    {
+        int signal = analogRead(PULSESENSOR_OUT);
+
+        if (signal > calibData->maxSignal)
+        {
+            calibData->maxSignal = signal;
+        }
+        if (signal < calibData->minSignal && signal > 10)
+        {
+            calibData->minSignal = signal;
+        }
+        sumSignal += signal;
+        sampleCount++;
+
+        delay(20);
+    }
+
+    calibData->baselineAverage = sumSignal / sampleCount;
+    int range = calibData->maxSignal - calibData->minSignal;
+
+    // Recalculate thresholds with new range
+    calculateThresholds(beatState, calibData->minSignal, calibData->maxSignal);
+
+    Serial.println("[Calibration] New signal range: " + String(calibData->minSignal) +
+                   " - " + String(calibData->maxSignal) + " (Range: " + String(range) + ")");
+    Serial.println("[Calibration] New thresholds - Upper: " + String(beatState->upperThreshold) +
+                   " Lower: " + String(beatState->lowerThreshold));
 }

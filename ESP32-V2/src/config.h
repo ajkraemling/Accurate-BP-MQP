@@ -6,6 +6,10 @@
 #define RESET_PIN -1
 #define EOC_PIN -1
 
+// LCD Display Constants
+#define LCD_COL 20
+#define LCD_ROW 4
+
 // Timing Constants
 #define SAMPLE_DELAY_MS 50
 #define BEAT_WINDOW_MS 250
@@ -14,6 +18,13 @@
 #define DISPLAY_UPDATE_INTERVAL_MS 20
 #define CALIBRATION_DURATION_MS 5000
 #define CALIBRATION_COUNTDOWN_SEC 5
+
+// Blood Pressure Measurement
+#define SYSTOLIC_START_PRESSURE 180     // Pressure to start looking for systolic
+#define SYSTOLIC_MIN_PRESSURE 80        // Minimum valid systolic pressure
+#define DIASTOLIC_MIN_PRESSURE 40       // Minimum valid diastolic pressure
+#define PRESSURE_DROP_THRESHOLD 5       // Pressure must drop this much to start measurement
+#define BP_MEASUREMENT_SENSITIVITY 0.25 // More sensitive thresholds during BP measurement (25% of range instead of 40-46%)
 
 // Filter Sizes
 #define PULSE_FILTER_SIZE 3
@@ -38,5 +49,6 @@
 // Output Mode Configuration
 extern bool DEBUG_MODE;
 extern bool STREAM_MODE;
+extern bool DISPLAY_MODE;
 
 #endif

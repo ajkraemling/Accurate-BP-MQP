@@ -1,7 +1,8 @@
 #include "signal_quality.h"
 #include "config.h"
+#include "lcd_display.h"
 
-void checkQuality(SignalQualityState *state, CalibrationData *calibData,
+void checkQuality(hd44780_I2Cexp *lcd, SignalQualityState *state, CalibrationData *calibData,
                   BeatDetectionState *beatState, int currentSignal,
                   unsigned long currentTime)
 {
@@ -24,6 +25,9 @@ void checkQuality(SignalQualityState *state, CalibrationData *calibData,
                        (range * STABILITY_THRESHOLD);
 
     state->qualityGood = rangeOK && heartRateOK && stabilityOK;
+
+    // Update the LCD display to print
+    printSignalWarnings(lcd, rangeOK, heartRateOK, stabilityOK);
 
     if (!state->qualityGood)
     {
