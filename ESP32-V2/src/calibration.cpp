@@ -1,12 +1,14 @@
 #include "calibration.h"
 #include "beat_detection.h"
 #include "Adafruit_MPRLS.h"
+#include "lcd_display.h"
 #include "config.h"
 
 void performCalibration(CalibrationData *calibData, BeatDetectionState *beatState,
-                        Adafruit_MPRLS *mpr)
+                        Adafruit_MPRLS *mpr, hd44780_I2Cexp *lcd)
 {
-    Serial.println("\n=== CALIBRATION ===");
+    // printLCD(lcd, "=== CALIBRATION === ", "Place finger on ", "sensor...           ");
+    Serial.println("\nCALIBRATION");
     Serial.print("  Place finger on sensor...\n   ");
 
     // Countdown
@@ -14,9 +16,12 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
     {
         Serial.print(i);
         Serial.print("... ");
+        // printLCD(lcd, "=== CALIBRATION === ", "Place finger on ", "sensor...           ", String(i) + "...");
+        lcdPrintWithNewlines(lcd, "CALIBRATION\nPlace finger on \nsensor......\n");
         delay(1000);
     }
     Serial.println("\nCalibrating...");
+    printLCD(lcd, "Calibrating...");
 
     // Initialize calibration values
     calibData->minSignal = 4095;
@@ -48,7 +53,7 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
         sampleCount++;
 
         // Progress indicator
-        if (sampleCount % 100 == 0)
+        if (sampleCount % 20 == 0)
         {
             Serial.print(".");
         }
@@ -73,16 +78,34 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
     Serial.println("   Lower Threshold: " + String(beatState->lowerThreshold));
     Serial.println("   Baseline Pressure: " + String(calibData->atmPressure, 1) + " hPa");
 
+    printLCD(lcd,
+             "Calibration complete",
+             "Upper bound: " + String(beatState->upperThreshold),
+             "Lower bound: " + String(beatState->lowerThreshold),
+             "Atmosphere: " + String(calibData->atmPressure, 1) + "hPa");
+    delay(2000);
     // Signal quality warnings
     if (range < MIN_SIGNAL_RANGE)
     {
         Serial.println("\nWARNING: Weak pulse signal detected!");
         Serial.println("PPG sensor may be too loose or poorly positioned.");
+        printLCD(lcd,
+                 "!!! WARNING !!!",
+                 "Weak pulse signal",
+                 "detected! Sensor may",
+                 "be too loose.");
+        delay(2000);
     }
     else if (range > MAX_SIGNAL_RANGE)
     {
         Serial.println("\nWARNING: Signal may be saturated!");
         Serial.println("PPG sensor may be too tight or too much light may be getting in");
+        printLCD(lcd,
+                 "!!! WARNING !!!",
+                 "Signal may be over-",
+                 "saturated! It may be",
+                 "too tight.");
+        delay(2000);
     }
 }
 

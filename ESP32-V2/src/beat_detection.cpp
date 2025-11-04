@@ -1,6 +1,7 @@
 #include "beat_detection.h"
 #include "calibration.h"
 #include "config.h"
+#include "lcd_display.h"
 
 void initializeBeatDetection(BeatDetectionState *state)
 {
@@ -126,6 +127,7 @@ void setBPMeasurementMode(BeatDetectionState *state, bool enabled, int minSignal
 void initializeBPMeasurement(BPMeasurementData *bpData)
 {
     bpData->state = BP_IDLE;
+    bpData->oldState = BP_IDLE;
     bpData->systolicPressure = 0;
     bpData->diastolicPressure = 0;
     bpData->maxPressureSeen = 0;
@@ -135,7 +137,7 @@ void initializeBPMeasurement(BPMeasurementData *bpData)
     bpData->measurementStartTime = 0;
 }
 
-void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool heartbeatOccurred)
+void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool heartbeatOccurred, hd44780_I2Cexp *lcd)
 {
     // Track maximum pressure seen
     if (currentPressure > bpData->maxPressureSeen)
@@ -143,10 +145,13 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         bpData->maxPressureSeen = currentPressure;
     }
 
+    String lcdPrint;
+
     switch (bpData->state)
     {
     case BP_IDLE:
         // Start looking when pressure starts rising
+        lcdPrint = "Waiting...";
         if (currentPressure > SYSTOLIC_MIN_PRESSURE)
         {
             bpData->state = BP_WAITING_INFLATE;
@@ -155,6 +160,7 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         break;
 
     case BP_WAITING_INFLATE:
+        lcdPrint = "Inflating cuff...\n\nPressure: " + String((int)currentPressure) + " mmHg";
         // Wait until pressure reaches measurement threshold
         if (currentPressure >= SYSTOLIC_START_PRESSURE)
         {
@@ -175,6 +181,7 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         break;
 
     case BP_READY:
+        lcdPrint = "Deflating cuff...\n \nPressure: " + String((int)currentPressure) + " mmHg";
         // Wait for pressure to start dropping, then recalibrate to flatline conditions
         if (currentPressure < (bpData->maxPressureSeen - PRESSURE_DROP_THRESHOLD))
         {
@@ -234,6 +241,7 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         break;
 
     case BP_COMPLETE:
+        lcdPrint = "Blood Pressure: \n" + String((int)bpData->systolicPressure) + "/" + String((int)bpData->diastolicPressure) + "mmHg";
         // Reset after a few seconds or when pressure drops to near zero
         if (currentPressure < 10)
         {
@@ -241,6 +249,12 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
             initializeBPMeasurement(bpData);
         }
         break;
+    }
+
+    if (bpData->oldState != bpData->state)
+    {
+        bpData->oldState = bpData->state;
+        lcdPrintWithNewlines(lcd, lcdPrint.c_str());
     }
 }
 

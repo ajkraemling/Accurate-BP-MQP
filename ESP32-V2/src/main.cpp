@@ -46,7 +46,7 @@ void setup()
 
   initializeFilters(&pulseFilter, &pressureFilter);
   initializeBPMeasurement(&bpData);
-  performCalibration(&calibData, &beatState, &mpr);
+  performCalibration(&calibData, &beatState, &mpr, &lcd);
   printOutputHeader();
 }
 
@@ -79,11 +79,10 @@ void loop()
   bool heartbeatOccurred = detectHeartbeat(&beatState, filteredSignal, currentTime);
 
   // Update blood pressure measurement
-  updateBPMeasurement(&bpData, pressureGauge, heartbeatOccurred);
+  updateBPMeasurement(&bpData, pressureGauge, heartbeatOccurred, &lcd);
 
   // Check signal quality periodically and print to LCD display
-  if (DISPLAY_MODE)
-    checkQuality(&lcd, &qualityState, &calibData, &beatState, filteredSignal, currentTime);
+  // checkQuality(&lcd, &qualityState, &calibData, &beatState, filteredSignal, currentTime);
 
   // Output data
   outputData(heartbeatOccurred, beatState.beatDetected, rawPPGSignal,

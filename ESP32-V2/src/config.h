@@ -27,7 +27,7 @@
 #define BP_MEASUREMENT_SENSITIVITY 0.25 // More sensitive thresholds during BP measurement (25% of range instead of 40-46%)
 
 // Filter Sizes
-#define PULSE_FILTER_SIZE 3
+#define PULSE_FILTER_SIZE 20
 #define PRESSURE_FILTER_SIZE 4
 
 // Threshold Ratios

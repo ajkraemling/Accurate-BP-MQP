@@ -2,6 +2,10 @@
 #define BEAT_DETECTION_H
 
 #include <Arduino.h>
+#include <Wire.h>
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_I2Cexp.h>
+#include "config.h"
 
 struct CalibrationData;
 
@@ -33,6 +37,7 @@ typedef enum
 typedef struct
 {
     BPMeasurementState state;
+    BPMeasurementState oldState;
     float systolicPressure;
     float diastolicPressure;
     float maxPressureSeen;
@@ -46,7 +51,7 @@ typedef struct
 void initializeBPMeasurement(BPMeasurementData *bpData);
 
 // Update BP measurement state machine
-void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool heartbeatOccurred);
+void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool heartbeatOccurred, hd44780_I2Cexp *lcd);
 
 // Check if ready to start measurement
 bool isReadyForMeasurement(BPMeasurementData *bpData);

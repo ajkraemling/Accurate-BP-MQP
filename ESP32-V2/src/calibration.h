@@ -2,6 +2,9 @@
 #define CALIBRATION_H
 
 #include <Arduino.h>
+#include <Wire.h>
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_I2Cexp.h>
 
 class Adafruit_MPRLS;
 struct BeatDetectionState; // forward declare only
@@ -16,7 +19,7 @@ struct CalibrationData
 
 // Perform calibration routine
 void performCalibration(CalibrationData *calibData, BeatDetectionState *beatState,
-                        Adafruit_MPRLS *mpr);
+                        Adafruit_MPRLS *mpr, hd44780_I2Cexp *lcd);
 
 // Update adaptive thresholds based on current signal
 void updateThresholds(CalibrationData *calibData, BeatDetectionState *beatState,
