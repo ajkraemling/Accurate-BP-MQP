@@ -17,7 +17,7 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
         Serial.print(i);
         Serial.print("... ");
         // printLCD(lcd, "=== CALIBRATION === ", "Place finger on ", "sensor...           ", String(i) + "...");
-        lcdPrintWithNewlines(lcd, "CALIBRATION\nPlace finger on \nsensor......\n");
+        lcdPrintWithNewlines(lcd, ("CALIBRATION\nPlace finger on \nsensor......\n" + String(i) + "...").c_str());
         delay(1000);
     }
     Serial.println("\nCalibrating...");
@@ -39,13 +39,10 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
 
         // Update min/max
         if (signal > calibData->maxSignal)
-        {
             calibData->maxSignal = signal;
-        }
         if (signal < calibData->minSignal && signal > 10)
-        {
             calibData->minSignal = signal;
-        }
+
         sumSignal += signal;
 
         // Accumulate pressure readings
@@ -53,10 +50,8 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
         sampleCount++;
 
         // Progress indicator
-        if (sampleCount % 20 == 0)
-        {
-            Serial.print(".");
-        }
+        // if (sampleCount % 10 == 0)
+        Serial.print(".");
 
         delay(20);
     }
@@ -177,13 +172,10 @@ void recalibrateSignalRange(CalibrationData *calibData, BeatDetectionState *beat
         int signal = analogRead(PULSESENSOR_OUT);
 
         if (signal > calibData->maxSignal)
-        {
             calibData->maxSignal = signal;
-        }
         if (signal < calibData->minSignal && signal > 10)
-        {
             calibData->minSignal = signal;
-        }
+
         sumSignal += signal;
         sampleCount++;
 

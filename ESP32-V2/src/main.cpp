@@ -72,14 +72,14 @@ void loop()
   updateThresholds(&calibData, &beatState, filteredSignal, currentTime);
 
   // Switch to sensitive mode during BP measurement
-  bool shouldUseSensitiveMode = (bpData.state == BP_READY || bpData.state == BP_MEASURING);
+  bool shouldUseSensitiveMode = (bpData.state == MEASURE_SYSTOLIC || bpData.state == MEASURE_DIASTOLIC);
   setBPMeasurementMode(&beatState, shouldUseSensitiveMode, calibData.minSignal, calibData.maxSignal);
 
   // Detect heartbeat
   bool heartbeatOccurred = detectHeartbeat(&beatState, filteredSignal, currentTime);
 
   // Update blood pressure measurement
-  updateBPMeasurement(&bpData, pressureGauge, heartbeatOccurred, &lcd);
+  updateBPMeasurement(&bpData, pressureGauge, rawPPGSignal, &lcd);
 
   // Check signal quality periodically and print to LCD display
   // checkQuality(&lcd, &qualityState, &calibData, &beatState, filteredSignal, currentTime);

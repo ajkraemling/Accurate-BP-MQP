@@ -7,7 +7,7 @@
 #include <hd44780ioClass/hd44780_I2Cexp.h>
 
 class Adafruit_MPRLS;
-struct BeatDetectionState; // forward declare only
+struct BeatDetectionState;
 
 struct CalibrationData
 {

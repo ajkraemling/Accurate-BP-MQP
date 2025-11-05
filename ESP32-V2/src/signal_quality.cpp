@@ -7,9 +7,7 @@ void checkQuality(hd44780_I2Cexp *lcd, SignalQualityState *state, CalibrationDat
                   unsigned long currentTime)
 {
     if (currentTime - state->lastQualityCheck < QUALITY_CHECK_INTERVAL_MS)
-    {
         return;
-    }
 
     // Check signal range
     int range = calibData->maxSignal - calibData->minSignal;

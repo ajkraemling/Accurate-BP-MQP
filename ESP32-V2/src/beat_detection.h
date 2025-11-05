@@ -25,16 +25,16 @@ struct BeatDetectionState
 };
 
 // Blood pressure measurement states
-typedef enum
+enum BPMeasurementState
 {
-    BP_IDLE,            // Not measuring
-    BP_WAITING_INFLATE, // Waiting for pressure to reach threshold
-    BP_READY,           // Above threshold, ready to detect systolic
-    BP_MEASURING,       // Found systolic, measuring diastolic
-    BP_COMPLETE         // Measurement complete
-} BPMeasurementState;
+    IDLE,              // Not measuring
+    INFLATING,         // Waiting for pressure to reach threshold
+    MEASURE_SYSTOLIC,  // Above threshold, ready to detect systolic
+    MEASURE_DIASTOLIC, // Found systolic, measuring diastolic
+    COMPLETE           // Measurement complete
+};
 
-typedef struct
+struct BPMeasurementData
 {
     BPMeasurementState state;
     BPMeasurementState oldState;
@@ -45,13 +45,24 @@ typedef struct
     bool diastolicDetected;
     bool rangeRecalibrated;
     unsigned long measurementStartTime;
-} BPMeasurementData;
+    // Rolling baseline for flatline detection
+    int baselineWindow[BP_BASELINE_WINDOW];
+    int baselineIndex;
+    int baselineCount;
+    long baselineSum;
+    int baselineMin;
+    int baselineMax;
+    int consecutiveAboveThreshold;
+};
 
 // Initialize BP measurement data
 void initializeBPMeasurement(BPMeasurementData *bpData);
 
 // Update BP measurement state machine
-void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool heartbeatOccurred, hd44780_I2Cexp *lcd);
+void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, int currentPPGSignal, hd44780_I2Cexp *lcd);
+
+// Update rolling baseline and check for pulse detection
+bool checkForPulseAboveBaseline(BPMeasurementData *bpData, int currentSignal);
 
 // Check if ready to start measurement
 bool isReadyForMeasurement(BPMeasurementData *bpData);

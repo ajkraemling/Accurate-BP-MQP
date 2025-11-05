@@ -126,8 +126,8 @@ void setBPMeasurementMode(BeatDetectionState *state, bool enabled, int minSignal
 
 void initializeBPMeasurement(BPMeasurementData *bpData)
 {
-    bpData->state = BP_IDLE;
-    bpData->oldState = BP_IDLE;
+    bpData->state = IDLE;
+    bpData->oldState = IDLE;
     bpData->systolicPressure = 0;
     bpData->diastolicPressure = 0;
     bpData->maxPressureSeen = 0;
@@ -135,9 +135,97 @@ void initializeBPMeasurement(BPMeasurementData *bpData)
     bpData->diastolicDetected = false;
     bpData->rangeRecalibrated = false;
     bpData->measurementStartTime = 0;
+    bpData->baselineIndex = 0;
+    bpData->baselineCount = 0;
+    bpData->baselineSum = 0;
+    bpData->baselineMin = 4095;
+    bpData->baselineMax = 0;
+    bpData->consecutiveAboveThreshold = 0;
+
+    for (int i = 0; i < BP_BASELINE_WINDOW; i++)
+    {
+        bpData->baselineWindow[i] = 0;
+    }
 }
 
-void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool heartbeatOccurred, hd44780_I2Cexp *lcd)
+bool checkForPulseAboveBaseline(BPMeasurementData *bpData, int currentSignal)
+{
+    // Add current signal to rolling window
+    if (bpData->baselineCount < BP_BASELINE_WINDOW)
+    {
+        // Still filling the window
+        bpData->baselineWindow[bpData->baselineIndex] = currentSignal;
+        bpData->baselineSum += currentSignal;
+        bpData->baselineCount++;
+    }
+    else
+    {
+        // Window is full, update rolling average
+        bpData->baselineSum -= bpData->baselineWindow[bpData->baselineIndex];
+        bpData->baselineWindow[bpData->baselineIndex] = currentSignal;
+        bpData->baselineSum += currentSignal;
+    }
+
+    bpData->baselineIndex = (bpData->baselineIndex + 1) % BP_BASELINE_WINDOW;
+
+    // Calculate statistics from the window
+    if (bpData->baselineCount >= BP_BASELINE_WINDOW)
+    {
+        // Calculate mean
+        float baselineAvg = (float)bpData->baselineSum / BP_BASELINE_WINDOW;
+
+        // Calculate standard deviation and calculate min/max for additional context
+        float variance = 0;
+        bpData->baselineMin = 4095;
+        bpData->baselineMax = 0;
+        for (int i = 0; i < BP_BASELINE_WINDOW; i++)
+        {
+            int reading = bpData->baselineWindow[i];
+            float diff = reading - baselineAvg;
+            variance += diff * diff;
+            if (reading < bpData->baselineMin)
+                bpData->baselineMin = reading;
+            if (reading > bpData->baselineMax)
+                bpData->baselineMax = reading;
+        }
+        variance /= BP_BASELINE_WINDOW;
+        float stdDev = sqrt(variance);
+
+        // Threshold based on statistical deviation
+        float threshold = baselineAvg + (BP_THRESHOLD_MULTIPLIER * stdDev);
+
+        // Require minimum absolute deviation to avoid false positives on perfectly flat signal
+        if (stdDev < MIN_DEVIATION_FROM_FLAT)
+            threshold = baselineAvg + MIN_DEVIATION_FROM_FLAT;
+
+        // Check if current signal exceeds threshold
+        if (currentSignal > threshold)
+        {
+            bpData->consecutiveAboveThreshold++;
+
+            // Need 4 consecutive readings above threshold, in case of random noise
+            if (bpData->consecutiveAboveThreshold >= 4)
+            {
+                Serial.println("[BP] Pulse detected! Signal: " + String(currentSignal) +
+                               " > Threshold: " + String((int)threshold) +
+                               " (Mean: " + String((int)baselineAvg) +
+                               " + " + String(BP_THRESHOLD_MULTIPLIER) + "*StdDev: " + String((int)stdDev) + ")");
+                Serial.println("[BP]   Baseline range: " + String(bpData->baselineMin) +
+                               " - " + String(bpData->baselineMax));
+                bpData->consecutiveAboveThreshold = 0; // Reset for next pulse
+                return true;
+            }
+        }
+        else
+        {
+            bpData->consecutiveAboveThreshold = 0;
+        }
+    }
+
+    return false;
+}
+
+void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, int currentPPGSignal, hd44780_I2Cexp *lcd)
 {
     // Track maximum pressure seen
     if (currentPressure > bpData->maxPressureSeen)
@@ -146,25 +234,25 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
     }
 
     String lcdPrint;
-
+    bool pulseDetected = false;
     switch (bpData->state)
     {
-    case BP_IDLE:
+    case IDLE:
         // Start looking when pressure starts rising
         lcdPrint = "Waiting...";
         if (currentPressure > SYSTOLIC_MIN_PRESSURE)
         {
-            bpData->state = BP_WAITING_INFLATE;
+            bpData->state = INFLATING;
             Serial.println("\n[BP] Pressure detected, waiting for inflation...");
         }
         break;
 
-    case BP_WAITING_INFLATE:
+    case INFLATING:
         lcdPrint = "Inflating cuff...\n\nPressure: " + String((int)currentPressure) + " mmHg";
         // Wait until pressure reaches measurement threshold
         if (currentPressure >= SYSTOLIC_START_PRESSURE)
         {
-            bpData->state = BP_READY;
+            bpData->state = MEASURE_SYSTOLIC;
             bpData->measurementStartTime = millis();
             Serial.println("\n[BP] Ready to measure - pressure at " + String((int)currentPressure) + " mmHg");
             Serial.println("[BP] Signal is now flatlined from cuff pressure");
@@ -175,33 +263,30 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         else if (currentPressure < SYSTOLIC_MIN_PRESSURE &&
                  bpData->maxPressureSeen > SYSTOLIC_START_PRESSURE)
         {
+            lcdPrint = "Deflated, resetting";
             Serial.println("\n[BP] Pressure dropped before measurement - resetting");
             initializeBPMeasurement(bpData);
         }
         break;
 
-    case BP_READY:
+    case MEASURE_SYSTOLIC:
+        // Continuously update baseline with flatline signal
+        pulseDetected = checkForPulseAboveBaseline(bpData, currentPPGSignal);
         lcdPrint = "Deflating cuff...\n \nPressure: " + String((int)currentPressure) + " mmHg";
-        // Wait for pressure to start dropping, then recalibrate to flatline conditions
+        // Wait for pressure to start dropping
         if (currentPressure < (bpData->maxPressureSeen - PRESSURE_DROP_THRESHOLD))
         {
-            // Recalibrate once when we start deflating
-            if (!bpData->rangeRecalibrated)
-            {
-                extern CalibrationData calibData;
-                extern BeatDetectionState beatState;
-                recalibrateSignalRange(&calibData, &beatState);
-                bpData->rangeRecalibrated = true;
-            }
-
-            // Now detect first heartbeat = systolic
-            if (heartbeatOccurred)
+            // Check if we detect a pulse above baseline
+            if (pulseDetected)
             {
                 bpData->systolicPressure = currentPressure;
                 bpData->systolicDetected = true;
-                bpData->state = BP_MEASURING;
+                bpData->state = MEASURE_DIASTOLIC;
                 Serial.println("\n*** SYSTOLIC: " + String((int)bpData->systolicPressure) + " mmHg ***");
-                Serial.println("[BP] Detected first weak pulse during deflation");
+                Serial.println("[BP] First pulse detected above flatline baseline");
+                lcdPrint = "SYSTOLIC: " + String((int)bpData->systolicPressure) + " mmHg";
+                lcdPrintWithNewlines(lcd, lcdPrint.c_str());
+                delay(1000);
             }
         }
         // Timeout if no drop detected
@@ -212,26 +297,10 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         }
         break;
 
-    case BP_MEASURING:
-        // Continue recording heartbeats, last one before pressure gets too low is diastolic
-        if (heartbeatOccurred && currentPressure > DIASTOLIC_MIN_PRESSURE)
-        {
-            bpData->diastolicPressure = currentPressure;
-            Serial.println("[BP] Heartbeat at " + String((int)currentPressure) + " mmHg (pulses getting stronger)");
-        }
-
-        // Complete when pressure drops below minimum
-        if (currentPressure < DIASTOLIC_MIN_PRESSURE)
-        {
-            bpData->diastolicDetected = true;
-            bpData->state = BP_COMPLETE;
-            Serial.println("\n*** DIASTOLIC: " + String((int)bpData->diastolicPressure) + " mmHg ***");
-            Serial.println("========================================");
-            Serial.println("BLOOD PRESSURE: " + String((int)bpData->systolicPressure) + "/" +
-                           String((int)bpData->diastolicPressure) + " mmHg");
-            Serial.println("========================================\n");
-        }
-
+    case MEASURE_DIASTOLIC:
+        // Continue recording heartbeats, this is where we would try to get diastolic
+        // Skip this for now
+        bpData->state = COMPLETE;
         // Timeout
         if (millis() - bpData->measurementStartTime > 60000)
         {
@@ -240,7 +309,7 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         }
         break;
 
-    case BP_COMPLETE:
+    case COMPLETE:
         lcdPrint = "Blood Pressure: \n" + String((int)bpData->systolicPressure) + "/" + String((int)bpData->diastolicPressure) + "mmHg";
         // Reset after a few seconds or when pressure drops to near zero
         if (currentPressure < 10)
@@ -251,7 +320,7 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
         break;
     }
 
-    if (bpData->oldState != bpData->state)
+    if (bpData->oldState != bpData->state || bpData->state == MEASURE_SYSTOLIC)
     {
         bpData->oldState = bpData->state;
         lcdPrintWithNewlines(lcd, lcdPrint.c_str());
@@ -260,7 +329,7 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, bool 
 
 bool isReadyForMeasurement(BPMeasurementData *bpData)
 {
-    return bpData->state == BP_READY || bpData->state == BP_MEASURING;
+    return bpData->state == MEASURE_SYSTOLIC || bpData->state == MEASURE_DIASTOLIC;
 }
 
 void resetBPMeasurement(BPMeasurementData *bpData)

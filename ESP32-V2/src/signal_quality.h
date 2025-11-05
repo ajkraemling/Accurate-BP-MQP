@@ -8,11 +8,11 @@
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_I2Cexp.h>
 
-typedef struct
+struct SignalQualityState
 {
     bool qualityGood;
     unsigned long lastQualityCheck;
-} SignalQualityState;
+};
 
 // Check signal quality
 void checkQuality(hd44780_I2Cexp *lcd, SignalQualityState *state, CalibrationData *calibData,

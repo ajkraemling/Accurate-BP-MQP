@@ -3,21 +3,21 @@
 
 #include "config.h"
 
-typedef struct
+struct PulseFilterState
 {
     int buffer[PULSE_FILTER_SIZE];
     int index;
     int total;
-} PulseFilterState;
+};
 
-typedef struct
+struct PressureFilterState
 {
     float buffer[PRESSURE_FILTER_SIZE];
     int index;
     float total;
     bool initialized;
     int initCounter;
-} PressureFilterState;
+};
 
 // Initialize filter arrays
 void initializeFilters(PulseFilterState *pulseFilter, PressureFilterState *pressureFilter);

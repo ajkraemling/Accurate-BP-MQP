@@ -23,11 +23,14 @@
 #define SYSTOLIC_START_PRESSURE 180     // Pressure to start looking for systolic
 #define SYSTOLIC_MIN_PRESSURE 80        // Minimum valid systolic pressure
 #define DIASTOLIC_MIN_PRESSURE 40       // Minimum valid diastolic pressure
-#define PRESSURE_DROP_THRESHOLD 5       // Pressure must drop this much to start measurement
+#define PRESSURE_DROP_THRESHOLD 10      // Pressure must drop this much to start measurement
 #define BP_MEASUREMENT_SENSITIVITY 0.25 // More sensitive thresholds during BP measurement (25% of range instead of 40-46%)
+#define BP_BASELINE_WINDOW 40           // Number of samples for rolling baseline (2 seconds at 20Hz sampling)
+#define BP_THRESHOLD_MULTIPLIER 2.5     // Standard deviations above baseline to detect pulse
+#define MIN_DEVIATION_FROM_FLAT 50      // Minimum deviation to read pulse in case of flat line with no deviation
 
 // Filter Sizes
-#define PULSE_FILTER_SIZE 20
+#define PULSE_FILTER_SIZE 3
 #define PRESSURE_FILTER_SIZE 4
 
 // Threshold Ratios
