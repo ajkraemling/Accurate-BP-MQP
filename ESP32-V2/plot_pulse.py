@@ -75,6 +75,8 @@ text_comb_ppg = ax_combined.text(0.95, 0.90, '', transform=ax_combined.transAxes
                                  ha='right', va='top', fontsize=10, color='tab:blue')
 text_comb_pressure = ax_combined.text(0.95, 0.95, '', transform=ax_combined.transAxes,
                                       ha='right', va='top', fontsize=10, color='tab:orange')
+text_systolic = ax_combined.text(0.95, 0.95, '', transform=ax_combined.transAxes,
+                       ha='right', va='bottom', fontsize=10, color='blue')
 
 # --- Update function for FuncAnimation ---
 def update(frame):
@@ -91,7 +93,7 @@ def update(frame):
             continue
 
         try:
-            v1, v2 = map(float, line.split(','))
+            v1, v2, v3 = map(float, line.split(','))
             ppg.append(v1)
             pressure.append(v2)
         except ValueError:
@@ -107,7 +109,8 @@ def update(frame):
     line_comb_pressure.set_data(x_pressure, pressure)
 
     # Update text to show latest values
-    text_ppg.set_text(f'{ppg[-1]:.1f}')
+    # text_ppg.set_text(f'Systolic: {v3:.1f}')
+    text_systolic.set_text(f'{ppg[-1]:.1f}')
     text_pressure.set_text(f'{pressure[-1]:.1f}')
     text_comb_ppg.set_text(f'PPG: {ppg[-1]:.1f}')
     text_comb_pressure.set_text(f'Pressure: {pressure[-1]:.1f}')

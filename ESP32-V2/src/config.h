@@ -27,11 +27,12 @@
 #define BP_MEASUREMENT_SENSITIVITY 0.25 // More sensitive thresholds during BP measurement (25% of range instead of 40-46%)
 #define BP_BASELINE_WINDOW 40           // Number of samples for rolling baseline (2 seconds at 20Hz sampling)
 #define BP_THRESHOLD_MULTIPLIER 2.5     // Standard deviations above baseline to detect pulse
-#define MIN_DEVIATION_FROM_FLAT 50      // Minimum deviation to read pulse in case of flat line with no deviation
+#define MIN_DEVIATION_FROM_FLAT 10      // Minimum deviation to read pulse in case of flat line with no deviation
+#define NUMBER_OF_READINGS 2            // Number of readings above value required
 
 // Filter Sizes
 #define PULSE_FILTER_SIZE 3
-#define PRESSURE_FILTER_SIZE 4
+#define PRESSURE_FILTER_SIZE 1
 
 // Threshold Ratios
 #define UPPER_THRESHOLD_RATIO 0.46

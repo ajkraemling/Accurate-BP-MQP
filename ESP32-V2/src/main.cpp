@@ -86,7 +86,7 @@ void loop()
 
   // Output data
   outputData(heartbeatOccurred, beatState.beatDetected, rawPPGSignal,
-             filteredSignal, pressureGauge, currentTime);
+             filteredSignal, pressureGauge, currentTime, &bpData);
 
   delay(SAMPLE_DELAY_MS);
 }

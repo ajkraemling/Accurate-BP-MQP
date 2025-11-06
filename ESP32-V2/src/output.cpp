@@ -1,5 +1,6 @@
 #include "output.h"
 #include "config.h"
+#include "beat_detection.h"
 
 static unsigned long lastDisplayUpdate = 0;
 
@@ -31,13 +32,15 @@ void printOutputHeader()
 }
 
 void outputData(bool heartbeatOccurred, bool beatDetected, int rawSignal,
-                int filteredSignal, float pressure, unsigned long timestamp)
+                int filteredSignal, float pressure, unsigned long timestamp, BPMeasurementData *bpData)
 {
     if (STREAM_MODE) // For plotting
     {
         Serial.print(filteredSignal);
         Serial.print(",");
-        Serial.println(pressure, 2);
+        Serial.print(pressure, 2);
+        Serial.print(",");
+        Serial.println(bpData->systolicPressure);
     }
     else if (DEBUG_MODE) // For debugging, prints all data
     {

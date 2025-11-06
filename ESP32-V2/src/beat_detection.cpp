@@ -150,6 +150,10 @@ void initializeBPMeasurement(BPMeasurementData *bpData)
 
 bool checkForPulseAboveBaseline(BPMeasurementData *bpData, int currentSignal)
 {
+    // Don't update if we get a bad reading
+    if (currentSignal < 10)
+        return false;
+
     // Add current signal to rolling window
     if (bpData->baselineCount < BP_BASELINE_WINDOW)
     {
@@ -204,7 +208,7 @@ bool checkForPulseAboveBaseline(BPMeasurementData *bpData, int currentSignal)
             bpData->consecutiveAboveThreshold++;
 
             // Need 4 consecutive readings above threshold, in case of random noise
-            if (bpData->consecutiveAboveThreshold >= 4)
+            if (bpData->consecutiveAboveThreshold >= NUMBER_OF_READINGS)
             {
                 Serial.println("[BP] Pulse detected! Signal: " + String(currentSignal) +
                                " > Threshold: " + String((int)threshold) +
@@ -286,7 +290,7 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, int c
                 Serial.println("[BP] First pulse detected above flatline baseline");
                 lcdPrint = "SYSTOLIC: " + String((int)bpData->systolicPressure) + " mmHg";
                 lcdPrintWithNewlines(lcd, lcdPrint.c_str());
-                delay(1000);
+                // delay(1000);
             }
         }
         // Timeout if no drop detected
@@ -314,13 +318,16 @@ void updateBPMeasurement(BPMeasurementData *bpData, float currentPressure, int c
         // Reset after a few seconds or when pressure drops to near zero
         if (currentPressure < 10)
         {
-            Serial.println("[BP] Measurement complete, ready for next reading\n");
-            initializeBPMeasurement(bpData);
+            // Serial.println("[BP] Measurement complete, ready for next reading\n");
+            // initializeBPMeasurement(bpData);
         }
+        lcdPrint = "SYSTOLIC: " + String((int)bpData->systolicPressure) + " mmHg";
+        lcdPrintWithNewlines(lcd, lcdPrint.c_str());
+        Serial.println("Systolic: " + String((int)bpData->systolicPressure));
         break;
     }
 
-    if (bpData->oldState != bpData->state || bpData->state == MEASURE_SYSTOLIC)
+    if (bpData->oldState != bpData->state || bpData->state == MEASURE_SYSTOLIC && bpData->state != MEASURE_DIASTOLIC && bpData->state != COMPLETE)
     {
         bpData->oldState = bpData->state;
         lcdPrintWithNewlines(lcd, lcdPrint.c_str());
