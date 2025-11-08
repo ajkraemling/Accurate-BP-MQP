@@ -1,10 +1,29 @@
 import serial
 import time
+import csv
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from collections import deque
 
-# --- configure your serial port ---
+# ---------------------------------------------------------------------------------
+# MACOS SERIAL PORT SETUP
+# ---------------------------------------------------------------------------------
+# On macOS, replace 'COM6' with the correct serial device path.
+# To find your ESP32 or Arduino port, open Terminal and run:
+#     ls /dev/tty.*
+#
+# You’ll see something like:
+#     /dev/tty.usbserial-0001
+#     /dev/tty.usbmodem1101
+#
+# Use the one that starts with /dev/tty.usb or /dev/tty.SLAB_USB.
+# Example:
+#     ser = serial.Serial('/dev/tty.usbserial-0001', 115200, timeout=1)
+#
+# If you get a “Permission denied” error, run this in Terminal:
+#     sudo chmod 666 /dev/tty.usbserial-0001
+#
+# ---------------------------------------------------------------------------------
 ser = serial.Serial('COM6', 115200, timeout=1)
 
 # --- force ESP32 reset like PlatformIO does ---
@@ -38,6 +57,12 @@ while True:
 window = 200
 ppg = deque([0.0]*window, maxlen=window)
 pressure = deque([0.0]*window, maxlen=window)
+
+# --- CSV logging setup ---
+csv_filename = f"bp_data_{int(time.time())}.csv"
+csv_file = open(csv_filename, 'w', newline='')
+csv_writer = csv.writer(csv_file)
+csv_writer.writerow(["Timestamp", "PPG", "Pressure", "Systolic"])  # header
 
 # --- Figure layout: 2 rows, 2 columns ---
 fig, ((ax_ppg, ax_combined),
@@ -76,11 +101,11 @@ text_comb_ppg = ax_combined.text(0.95, 0.90, '', transform=ax_combined.transAxes
 text_comb_pressure = ax_combined.text(0.95, 0.95, '', transform=ax_combined.transAxes,
                                       ha='right', va='top', fontsize=10, color='tab:orange')
 text_systolic = ax_combined.text(0.95, 0.95, '', transform=ax_combined.transAxes,
-                       ha='right', va='bottom', fontsize=10, color='blue')
+                                 ha='right', va='bottom', fontsize=10, color='blue')
 
 # --- Update function for FuncAnimation ---
 def update(frame):
-    # Read multiple lines to prevent lag
+    global last_save_time
     for _ in range(10):
         if not ser.in_waiting:
             break
@@ -96,6 +121,10 @@ def update(frame):
             v1, v2, v3 = map(float, line.split(','))
             ppg.append(v1)
             pressure.append(v2)
+
+            # --- Save to CSV with timestamp ---
+            timestamp = time.time()
+            csv_writer.writerow([timestamp, v1, v2, v3])
         except ValueError:
             continue
 
@@ -109,7 +138,6 @@ def update(frame):
     line_comb_pressure.set_data(x_pressure, pressure)
 
     # Update text to show latest values
-    # text_ppg.set_text(f'Systolic: {v3:.1f}')
     text_systolic.set_text(f'{ppg[-1]:.1f}')
     text_pressure.set_text(f'{pressure[-1]:.1f}')
     text_comb_ppg.set_text(f'PPG: {ppg[-1]:.1f}')
@@ -117,6 +145,14 @@ def update(frame):
 
     return line_ppg, line_pressure, line_comb_ppg, line_comb_pressure, \
            text_ppg, text_pressure, text_comb_ppg, text_comb_pressure
+
+# --- Close CSV properly when plot window closes ---
+def on_close(event):
+    csv_file.close()
+    ser.close()
+    print(f"\nData saved to {csv_filename}")
+
+fig.canvas.mpl_connect('close_event', on_close)
 
 # --- Start animation ---
 ani = animation.FuncAnimation(fig, update, interval=50, blit=True)
