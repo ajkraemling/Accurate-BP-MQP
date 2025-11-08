@@ -24,7 +24,7 @@ from collections import deque
 #     sudo chmod 666 /dev/tty.usbserial-0001
 #
 # ---------------------------------------------------------------------------------
-ser = serial.Serial('COM6', 115200, timeout=1)
+ser = serial.Serial('/dev/cu.usbserial-0001', 115200, timeout=1)
 
 # --- force ESP32 reset like PlatformIO does ---
 ser.dtr = False
