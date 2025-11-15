@@ -98,9 +98,9 @@ void setBPMeasurementMode(BeatDetectionState *state, bool enabled, int minSignal
 {
     if (enabled && !state->bpMeasurementMode)
     {
-        // Save normal thresholds
-        state->normalUpperThreshold = state->upperThreshold;
-        state->normalLowerThreshold = state->lowerThreshold;
+        // // Save normal thresholds
+        // state->normalUpperThreshold = state->upperThreshold;
+        // state->normalLowerThreshold = state->lowerThreshold;
 
         // Set much more sensitive thresholds for weak BP pulses
         int range = maxSignal - minSignal;
@@ -109,19 +109,19 @@ void setBPMeasurementMode(BeatDetectionState *state, bool enabled, int minSignal
 
         state->bpMeasurementMode = true;
 
-        Serial.println("[BP] Switched to sensitive mode - Upper: " + String(state->upperThreshold) +
-                       " Lower: " + String(state->lowerThreshold));
+        // Serial.println("[BP] Switched to sensitive mode - Upper: " + String(state->upperThreshold) +
+        //                " Lower: " + String(state->lowerThreshold));
     }
-    else if (!enabled && state->bpMeasurementMode)
-    {
-        // Restore normal thresholds
-        state->upperThreshold = state->normalUpperThreshold;
-        state->lowerThreshold = state->normalLowerThreshold;
-        state->bpMeasurementMode = false;
+    // else if (!enabled && state->bpMeasurementMode)
+    // {
+    //     // Restore normal thresholds
+    //     state->upperThreshold = state->normalUpperThreshold;
+    //     state->lowerThreshold = state->normalLowerThreshold;
+    //     state->bpMeasurementMode = false;
 
-        Serial.println("[BP] Switched to normal mode - Upper: " + String(state->upperThreshold) +
-                       " Lower: " + String(state->lowerThreshold));
-    }
+    //     Serial.println("[BP] Switched to normal mode - Upper: " + String(state->upperThreshold) +
+    //                    " Lower: " + String(state->lowerThreshold));
+    // }
 }
 
 void initializeBPMeasurement(BPMeasurementData *bpData)

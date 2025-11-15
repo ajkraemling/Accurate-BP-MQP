@@ -24,84 +24,84 @@ void performCalibration(CalibrationData *calibData, BeatDetectionState *beatStat
     printLCD(lcd, "Calibrating...");
 
     // Initialize calibration values
-    calibData->minSignal = 4095;
-    calibData->maxSignal = 0;
+    // calibData->minSignal = 4095;
+    // calibData->maxSignal = 0;
     calibData->atmPressure = 0;
-    long sumSignal = 0;
-    int sampleCount = 0;
+    // long sumSignal = 0;
+    // int sampleCount = 0;
 
     unsigned long calibrationStart = millis();
 
     while (millis() - calibrationStart < CALIBRATION_DURATION_MS)
     {
         // Read PPG signal
-        int signal = analogRead(PULSESENSOR_OUT);
+        // int signal = analogRead(PULSESENSOR_OUT);
 
         // Update min/max
-        if (signal > calibData->maxSignal)
-            calibData->maxSignal = signal;
-        if (signal < calibData->minSignal && signal > 10)
-            calibData->minSignal = signal;
+        // if (signal > calibData->maxSignal)
+        //     calibData->maxSignal = signal;
+        // if (signal < calibData->minSignal && signal > 10)
+        //     calibData->minSignal = signal;
 
-        sumSignal += signal;
+        // sumSignal += signal;
 
         // Accumulate pressure readings
         calibData->atmPressure += mpr->readPressure();
-        sampleCount++;
+        // sampleCount++;
 
         // Progress indicator
         // if (sampleCount % 10 == 0)
         Serial.print(".");
 
-        delay(20);
+        delay(10);
     }
 
-    // Calculate baseline values
-    int range = calibData->maxSignal - calibData->minSignal;
-    calibData->baselineAverage = sumSignal / sampleCount;
-    calibData->atmPressure = calibData->atmPressure / sampleCount;
+    // // Calculate baseline values
+    // int range = calibData->maxSignal - calibData->minSignal;
+    // calibData->baselineAverage = sumSignal / sampleCount;
+    // calibData->atmPressure = calibData->atmPressure / sampleCount;
 
-    // Calculate initial thresholds
-    calculateThresholds(beatState, calibData->minSignal, calibData->maxSignal);
+    // // Calculate initial thresholds
+    // calculateThresholds(beatState, calibData->minSignal, calibData->maxSignal);
 
     // Print calibration results
     Serial.println("\nCalibration complete!");
-    Serial.println("   Signal Range: " + String(calibData->minSignal) + " - " +
-                   String(calibData->maxSignal) + " (Range: " + String(range) + ")");
-    Serial.println("   Average Signal: " + String(calibData->baselineAverage));
-    Serial.println("   Upper Threshold: " + String(beatState->upperThreshold));
-    Serial.println("   Lower Threshold: " + String(beatState->lowerThreshold));
+    // Serial.println("   Signal Range: " + String(calibData->minSignal) + " - " +
+    //                String(calibData->maxSignal) + " (Range: " + String(range) + ")");
+    // Serial.println("   Average Signal: " + String(calibData->baselineAverage));
+    // Serial.println("   Upper Threshold: " + String(beatState->upperThreshold));
+    // Serial.println("   Lower Threshold: " + String(beatState->lowerThreshold));
     Serial.println("   Baseline Pressure: " + String(calibData->atmPressure, 1) + " hPa");
 
     printLCD(lcd,
              "Calibration complete",
-             "Upper bound: " + String(beatState->upperThreshold),
-             "Lower bound: " + String(beatState->lowerThreshold),
+             //  "Upper bound: " + String(beatState->upperThreshold),
+             //  "Lower bound: " + String(beatState->lowerThreshold),
              "Atmosphere: " + String(calibData->atmPressure, 1) + "hPa");
     delay(2000);
     // Signal quality warnings
-    if (range < MIN_SIGNAL_RANGE)
-    {
-        Serial.println("\nWARNING: Weak pulse signal detected!");
-        Serial.println("PPG sensor may be too loose or poorly positioned.");
-        printLCD(lcd,
-                 "!!! WARNING !!!",
-                 "Weak pulse signal",
-                 "detected! Sensor may",
-                 "be too loose.");
-        delay(2000);
-    }
-    else if (range > MAX_SIGNAL_RANGE)
-    {
-        Serial.println("\nWARNING: Signal may be saturated!");
-        Serial.println("PPG sensor may be too tight or too much light may be getting in");
-        printLCD(lcd,
-                 "!!! WARNING !!!",
-                 "Signal may be over-",
-                 "saturated! It may be",
-                 "too tight.");
-        delay(2000);
-    }
+    // if (range < MIN_SIGNAL_RANGE)
+    // {
+    //     Serial.println("\nWARNING: Weak pulse signal detected!");
+    //     Serial.println("PPG sensor may be too loose or poorly positioned.");
+    //     printLCD(lcd,
+    //              "!!! WARNING !!!",
+    //              "Weak pulse signal",
+    //              "detected! Sensor may",
+    //              "be too loose.");
+    //     delay(2000);
+    // }
+    // else if (range > MAX_SIGNAL_RANGE)
+    // {
+    //     Serial.println("\nWARNING: Signal may be saturated!");
+    //     Serial.println("PPG sensor may be too tight or too much light may be getting in");
+    //     printLCD(lcd,
+    //              "!!! WARNING !!!",
+    //              "Signal may be over-",
+    //              "saturated! It may be",
+    //              "too tight.");
+    //     delay(2000);
+    // }
 }
 
 void updateThresholds(CalibrationData *calibData, BeatDetectionState *beatState,
