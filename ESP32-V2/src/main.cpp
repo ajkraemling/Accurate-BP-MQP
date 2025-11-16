@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include "config.h"
-#include "Sensor.h"
+#include "sensors.h"
 #include "Display.h"
 #include "BPMonitor.h"
 #include "PulseDetector.h"

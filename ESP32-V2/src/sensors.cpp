@@ -1,4 +1,4 @@
-#include "sensor.h"
+#include "sensors.h"
 
 PressureSensor::PressureSensor()
     : mpr(RESET_PIN, EOC_PIN), atmosphericPressure(0) {}
@@ -33,9 +33,22 @@ float PressureSensor::readGaugePressure()
     return (absolute - atmosphericPressure) * HPA_TO_MMHG;
 }
 
-PPGSensor::PPGSensor() {}
+PPGSensor::PPGSensor()
+    : filter() {}
 
 int PPGSensor::read()
 {
+    int raw = analogRead(PPG_PIN);
+    float filtered = filter.filter((float)raw);
+    return (int)filtered;
+}
+
+int PPGSensor::readRaw()
+{
     return analogRead(PPG_PIN);
+}
+
+void PPGSensor::resetFilter()
+{
+    filter.reset();
 }
