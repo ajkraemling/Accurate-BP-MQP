@@ -98,30 +98,6 @@ void BaselineDetector::reset()
     consecutiveAbove = 0;
 }
 
-// ThresholdDetector implementation
-ThresholdDetector::ThresholdDetector(const String &name, int thresholdValue)
-    : PulseDetector(name), threshold(thresholdValue), aboveThreshold(false) {}
-
-bool ThresholdDetector::detect(int ppgSignal, float pressureSignal)
-{
-    if (ppgSignal > threshold && !aboveThreshold)
-    {
-        aboveThreshold = true;
-        systolic = pressureSignal;
-        return true;
-    }
-    else if (ppgSignal < threshold - 50)
-    {
-        aboveThreshold = false;
-    }
-    return false;
-}
-
-void ThresholdDetector::reset()
-{
-    aboveThreshold = false;
-}
-
 // DerivativeDetector implementation
 DerivativeDetector::DerivativeDetector(const String &name, int window, int derivThreshold)
     : PulseDetector(name), windowSize(window), threshold(derivThreshold),
@@ -138,7 +114,7 @@ DerivativeDetector::~DerivativeDetector()
 
 bool DerivativeDetector::detect(int ppgSignal, float pressureSignal)
 {
-    // Add to buffer
+    // Fill buffer
     signalBuffer[bufferIdx] = ppgSignal;
     bufferIdx = (bufferIdx + 1) % windowSize;
     if (bufferCount < windowSize)
@@ -179,11 +155,6 @@ EnsembleDetector::EnsembleDetector(const String &name, int requiredVotes)
     {
         detectors[i] = nullptr;
     }
-}
-
-EnsembleDetector::~EnsembleDetector()
-{
-    // Note: We don't delete the detectors as they're managed externally
 }
 
 void EnsembleDetector::addDetector(PulseDetector *detector)

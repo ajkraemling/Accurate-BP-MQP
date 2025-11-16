@@ -44,18 +44,6 @@ public:
     void reset() override;
 };
 
-// Simple threshold crossing detector
-class ThresholdDetector : public PulseDetector
-{
-private:
-    int threshold;
-    bool aboveThreshold;
-
-public:
-    ThresholdDetector(const String &name, int thresholdValue);
-    bool detect(int ppgSignal, float pressureSignal) override;
-    void reset() override;
-};
 
 // Derivative-based detection (detects rising edge)
 class DerivativeDetector : public PulseDetector
@@ -86,7 +74,6 @@ private:
 
 public:
     EnsembleDetector(const String &name, int requiredVotes);
-    ~EnsembleDetector();
     void addDetector(PulseDetector *detector);
     bool detect(int ppgSignal, float pressureSignal) override;
     void reset() override;

@@ -57,24 +57,11 @@ void BPMonitor::printCSVRow(float pressure, int ppgSignal)
     Serial.print(",");
     Serial.print(ppgSignal);
 
-    // Print detectors if in measuring or complete state
-    bool shouldDetect = (state == MEASURING || state == COMPLETE);
-
     // Run all detectors and print results
     for (int i = 0; i < detectorCount; i++)
     {
         Serial.print(",");
-        if (shouldDetect)
-        {
-            if (detectors[i]->getSystolic() == 0)
-                detectors[i]->detect(ppgSignal, pressure);
-
-            Serial.print(detectors[i]->getSystolic());
-        }
-        else
-        {
-            Serial.print("0"); // Not detecting yet
-        }
+        Serial.print(detectors[i]->getSystolic());
     }
     Serial.println();
 }
@@ -119,14 +106,11 @@ void BPMonitor::update(float pressure, int ppgSignal, Display &display)
         // Print CSV data every sample
         if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD))
         {
-            // Check if we got first systolic detection
-            if (systolic == 0)
+            // Run all detectors
+            for (int i = 0; i < detectorCount; i++)
             {
-                for (int i = 0; i < detectorCount; i++)
-                {
-                    // Check detectors for first count, we can put other logic here, empty for now
-                    systolic = 1;
-                }
+                if (detectors[i]->getSystolic() == 0)
+                    detectors[i]->detect(ppgSignal, pressure);
             }
         }
 

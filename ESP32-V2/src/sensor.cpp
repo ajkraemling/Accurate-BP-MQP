@@ -1,4 +1,4 @@
-#include "Sensor.h"
+#include "sensor.h"
 
 PressureSensor::PressureSensor()
     : mpr(RESET_PIN, EOC_PIN), atmosphericPressure(0) {}
