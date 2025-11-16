@@ -21,14 +21,14 @@ BPMonitor bpMonitor;
 //   - T = Threshold multiplier (standard deviations above mean)    // Seems 2.5 may be sweet spot? Needs more testing
 //   - D = Minimum deviation (minimum signal change to detect)      // Doesn't seem to make a difference
 //   - C = Consecutive readings required to confirm pulse
-BaselineDetector det1("BL_W20_T2.5_D10_C2", 20, 2.5, 10, 2);
-BaselineDetector det2("BL_W40_T2.5_D10_C2", 40, 2.5, 10, 2); // WAY TOO LOW
-BaselineDetector det3("BL_W60_T2.5_D10_C2", 60, 2.5, 10, 2);
-BaselineDetector det4("BL_W80_T2.5_D10_C2", 80, 2.5, 10, 2);
-// BaselineDetector det5("BL_W40_T2.0_D10_C2", 40, 2.0, 10, 2); // WAY TOO HIGH
-// BaselineDetector det6("BL_W40_T3.0_D10_C2", 40, 3.0, 10, 2); // TOO LOW
-// BaselineDetector det7("BL_W40_T2.5_D15_C2", 40, 2.5, 15, 2);
-// BaselineDetector det8("BL_W40_T2.5_D5_C2", 40, 2.5, 5, 2);
+BaselineDetector det1("BL_W20_T2.5_D10_C2", 20, 2.5, 5, 2);
+BaselineDetector det2("BL_W40_T2.5_D10_C2", 40, 2.5, 5, 2); // WAY TOO LOW
+BaselineDetector det3("BL_W60_T2.5_D10_C2", 60, 2.5, 5, 2);
+BaselineDetector det4("BL_W80_T2.5_D10_C2", 10, 2.5, 5, 2);
+BaselineDetector det5("BL_W40_T2.0_D10_C2", 20, 1.0, 5, 2); // WAY TOO HIGH
+BaselineDetector det6("BL_W40_T3.0_D10_C2", 20, 1.5, 5, 1); // TOO LOW
+BaselineDetector det7("BL_W40_T2.5_D15_C2", 10, 1.0, 5, 1);
+BaselineDetector det8("BL_W40_T2.5_D5_C2", 20, 2.5, 5, 1);
 // BaselineDetector det9("BL_W40_T2.5_D10_C3", 40, 2.5, 10, 3);
 // BaselineDetector det10("BL_W40_T2.5_D10_C1", 40, 2.5, 10, 1); // WAY TOO HIGH
 
@@ -36,10 +36,10 @@ BaselineDetector det4("BL_W80_T2.5_D10_C2", 80, 2.5, 10, 2);
 //   DRV_W[window]_T[threshold]
 //   - W = Window size (samples to calculate derivative)
 //   - T = Threshold (minimum rate of change to detect rising edge)
-// DerivativeDetector det11("DRV_W5_T20", 5, 20); // WAY TOO LOW
-// DerivativeDetector det12("DRV_W10_T20", 10, 20); // WAY TOO LOW
-// DerivativeDetector det13("DRV_W5_T30", 5, 30); // WAY TOO HIGH
-// DerivativeDetector det14("DRV_W5_T10", 5, 10); // WAY TOO HIGH
+DerivativeDetector det11("DRV_W5_T1", 5, 20); // WAY TOO LOW
+DerivativeDetector det12("DRV_W10_T20", 10, 20); // WAY TOO LOW
+DerivativeDetector det13("DRV_W5_T30", 5, 30); // WAY TOO HIGH
+DerivativeDetector det14("DRV_W5_T1", 5, 1); // WAY TOO HIGH
 
 // Ensemble Detectors (ENS):
 //   ENS_[votes]of[total]
@@ -75,10 +75,10 @@ void setup()
     bpMonitor.addDetector(&det2);
     bpMonitor.addDetector(&det3);
     bpMonitor.addDetector(&det4);
-    // bpMonitor.addDetector(&det5);
-    // bpMonitor.addDetector(&det6);
-    // bpMonitor.addDetector(&det7);
-    // bpMonitor.addDetector(&det8);
+    bpMonitor.addDetector(&det5);
+    bpMonitor.addDetector(&det6);
+    bpMonitor.addDetector(&det7);
+    bpMonitor.addDetector(&det8);
     // bpMonitor.addDetector(&det9);
     // bpMonitor.addDetector(&det10);
     // bpMonitor.addDetector(&det11);

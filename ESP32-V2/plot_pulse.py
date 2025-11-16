@@ -85,7 +85,7 @@ gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1.2], hspace=0.5, wspace=0.3)
 # ---------------------------------------------------------------------------
 ax_ppg = fig.add_subplot(gs[0, 0])
 line_ppg, = ax_ppg.plot(ppg, color='tab:blue')
-ax_ppg.set_ylim(0, 4000)
+ax_ppg.set_ylim(-2000, 2000)
 ax_ppg.set_title("PPG Signal")
 ax_ppg.set_xlabel("Samples")
 ax_ppg.set_ylabel("Amplitude")
@@ -119,7 +119,7 @@ ax_combined.set_ylabel("PPG Amplitude")
 ax2.set_ylabel("Pressure (mmHg)")
 
 # FIXED AXIS RANGES
-ax_combined.set_ylim(0, 4000)
+ax_combined.set_ylim(-2000, 2000)
 ax2.set_ylim(0, 220)
 
 # Text overlays for real-time values
