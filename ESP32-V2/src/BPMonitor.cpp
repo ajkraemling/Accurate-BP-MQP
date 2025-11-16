@@ -39,6 +39,7 @@ void BPMonitor::reset()
 void BPMonitor::printCSVHeader() const
 {
     // Format: Time,Pressure,PPGSignal,Detector1,Detector2,...,DetectorN
+    Serial.print("Time,Pressure,PPGSignal");
     for (int i = 0; i < detectorCount; i++)
     {
         Serial.print(",");

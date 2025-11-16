@@ -9,14 +9,12 @@ import matplotlib.animation as animation
 from collections import deque
 import os
 import numpy as np
-from matplotlib.widgets import TextBox     # For scrollable display
 
 # ============================================================================
 # SERIAL PORT CONFIGURATION
 # ============================================================================
 
 ser = serial.Serial('COM6', 115200, timeout=1)
-
 ser.dtr = False
 ser.rts = False
 time.sleep(0.2)
@@ -76,14 +74,14 @@ pressure = deque([0.0]*window, maxlen=window)
 detection_data = {name: deque([0.0]*window, maxlen=window) for name in detector_names}
 
 # ============================================================================
-# FIGURE LAYOUT
+# FIGURE LAYOUT - TWO COLUMNS
 # ============================================================================
 
-fig = plt.figure(figsize=(16, 22))
-gs = fig.add_gridspec(5, 1, hspace=0.6)
+fig = plt.figure(figsize=(16, 12))
+gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1.2], hspace=0.5, wspace=0.3)
 
 # ---------------------------------------------------------------------------
-# PPG Plot
+# PPG Plot (Top-left)
 # ---------------------------------------------------------------------------
 ax_ppg = fig.add_subplot(gs[0, 0])
 line_ppg, = ax_ppg.plot(ppg, color='tab:blue')
@@ -91,39 +89,60 @@ ax_ppg.set_ylim(0, 4000)
 ax_ppg.set_title("PPG Signal")
 ax_ppg.set_xlabel("Samples")
 ax_ppg.set_ylabel("Amplitude")
+text_ppg = ax_ppg.text(0.95, 0.95, '', transform=ax_ppg.transAxes,
+                       ha='right', va='top', fontsize=10, color='red')
 
 # ---------------------------------------------------------------------------
-# Pressure Plot
+# Pressure Plot (Top-right)
 # ---------------------------------------------------------------------------
-ax_pressure = fig.add_subplot(gs[1, 0])
+ax_pressure = fig.add_subplot(gs[0, 1])
 line_pressure, = ax_pressure.plot(pressure, color='tab:orange')
 ax_pressure.set_ylim(0, 250)
 ax_pressure.set_title("Pressure")
 ax_pressure.set_xlabel("Samples")
 ax_pressure.set_ylabel("mmHg")
+text_pressure = ax_pressure.text(0.95, 0.95, '', transform=ax_pressure.transAxes,
+                                 ha='right', va='top', fontsize=10, color='red')
 
 # ---------------------------------------------------------------------------
-# Combined Plot
+# Combined Plot (Bottom, spans two columns)
 # ---------------------------------------------------------------------------
-ax_combined = fig.add_subplot(gs[2, 0])
-line_comb_ppg, = ax_combined.plot(ppg, color='tab:blue', alpha=0.7)
+ax_combined = fig.add_subplot(gs[1, :])
+line_comb_ppg, = ax_combined.plot(ppg, color='tab:blue', alpha=0.7, label='PPG')
+
 ax2 = ax_combined.twinx()
-line_comb_pressure, = ax2.plot(pressure, color='tab:red', alpha=0.7)
+line_comb_pressure, = ax2.plot(pressure, color='tab:red', alpha=0.7, label='Pressure')
 
 ax_combined.set_title("Combined View (Dual Axis)")
+ax_combined.set_xlabel("Samples")
 ax_combined.set_ylabel("PPG Amplitude")
-ax2.set_ylabel("mmHg")
+ax2.set_ylabel("Pressure (mmHg)")
+
+# FIXED AXIS RANGES
+ax_combined.set_ylim(0, 4000)
+ax2.set_ylim(0, 220)
+
+# Text overlays for real-time values
+text_comb_ppg = ax_combined.text(
+    0.02, 0.95, "", transform=ax_combined.transAxes,
+    ha="left", va="top", fontsize=10, color="blue"
+)
+text_comb_pressure = ax2.text(
+    0.98, 0.95, "", transform=ax2.transAxes,
+    ha="right", va="top", fontsize=10, color="red"
+)
 
 # ---------------------------------------------------------------------------
-# TEXT PANEL (Not a Matplotlib table; fast & scrollable)
+# TEXT PANEL - split into two columns
 # ---------------------------------------------------------------------------
-ax_text = fig.add_subplot(gs[3:, 0])
+# ax_text = fig.add_axes([0.01, 0.01, 0.98, 0.15])  # fixed axes below plots
+ax_text = fig.add_subplot(gs[2, :])
 ax_text.axis('off')
 
-# Create a big text box
+# Create initial text content
 initial_text = "Detector Values Will Appear Here..."
 text_box = ax_text.text(
-    0.01, 1.0,
+    0.0, 1.0,
     initial_text,
     fontsize=11,
     va='top',
@@ -134,11 +153,6 @@ text_box = ax_text.text(
 # ============================================================================
 # LIVE UPDATE LOOP
 # ============================================================================
-
-text_ppg = ax_ppg.text(0.95, 0.95, '', transform=ax_ppg.transAxes,
-                       ha='right', va='top', fontsize=10, color='red')
-text_pressure = ax_pressure.text(0.95, 0.95, '', transform=ax_pressure.transAxes,
-                                 ha='right', va='top', fontsize=10, color='red')
 
 def update(frame):
     for _ in range(5):
@@ -165,7 +179,6 @@ def update(frame):
             # Update buffers
             ppg.append(ppg_val)
             pressure.append(pres)
-
             for i, name in enumerate(detector_names):
                 detection_data[name].append(det_vals[i] if i < len(det_vals) else 0)
 
@@ -181,27 +194,47 @@ def update(frame):
     line_comb_ppg.set_data(x, ppg)
     line_comb_pressure.set_data(x, pressure)
 
-    # Numerical readouts on plots
+
+    ax_combined.relim()
+    ax_combined.autoscale_view()
+    ax2.relim()
+    ax2.autoscale_view()
+
+    # Update numerical readouts
     text_ppg.set_text(f'{ppg[-1]:.1f}')
     text_pressure.set_text(f'{pressure[-1]:.1f} mmHg')
+    text_comb_ppg.set_text(f"PPG: {ppg[-1]:.1f}")
+    text_comb_pressure.set_text(f"Pressure: {pressure[-1]:.1f} mmHg")
 
-    # -----------------------------------------------------------------------
-    # UPDATE THE TEXT PANEL
-    # -----------------------------------------------------------------------
-    text_content = []
+    # Update text box - up to 4 columns, 10 detectors each
+    col1, col2, col3, col4 = [], [], [], []
+    for i, name in enumerate(detector_names):
+        line = f"{name:20s}: {detection_data[name][-1]:8.2f}"
+        if i < 10:
+            col1.append(line)
+        elif i < 20:
+            col2.append(line)
+        elif i < 30:
+            col3.append(line)
+        elif i < 40:
+            col4.append(line)
 
-    for name in detector_names:
-        text_content.append(f"{name:20s} : {detection_data[name][-1]:8.2f}")
+    # Pad columns so they all have equal height
+    max_len = max(len(col1), len(col2), len(col3), len(col4))
+    for col in (col1, col2, col3, col4):
+        while len(col) < max_len:
+            col.append("")
 
-    # Join lines, update the panel
-    text_box.set_text("\n".join(text_content))
+    # Combine into rows
+    combined_lines = [
+        f"{l1}      {l2}      {l3}      {l4}"
+        for l1, l2, l3, l4 in zip(col1, col2, col3, col4)
+    ]
+
+    text_box.set_text("\n".join(combined_lines))
 
     return [
-        line_ppg,
-        line_pressure,
-        line_comb_ppg,
-        line_comb_pressure,
-        text_box,
+        line_ppg, line_pressure, line_comb_ppg, line_comb_pressure, text_box
     ]
 
 # ============================================================================
@@ -215,10 +248,4 @@ def on_close(event):
 fig.canvas.mpl_connect('close_event', on_close)
 
 ani = animation.FuncAnimation(fig, update, interval=50, blit=False)
-
-plt.subplots_adjust(
-    left=0.05, right=0.95,
-    top=0.98, bottom=0.03,
-)
-
 plt.show()
