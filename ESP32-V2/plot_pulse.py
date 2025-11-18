@@ -62,7 +62,7 @@ while True:
     except UnicodeDecodeError:
         continue
 
-csv_filename = f"bp_data_{int(time.time())}.csv"
+csv_filename = f"data/bp_data_{int(time.time())}.csv"
 csv_file = open(csv_filename, 'w', newline='')
 csv_writer = csv.writer(csv_file)
 csv_writer.writerow(csv_header.split(','))
