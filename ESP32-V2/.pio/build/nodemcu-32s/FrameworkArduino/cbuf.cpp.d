@@ -1,0 +1,3 @@
+.pio/build/nodemcu-32s/FrameworkArduino/cbuf.cpp.o: \
+ /Users/kalifang/.platformio/packages/framework-arduinoespressif32/cores/esp32/cbuf.cpp \
+ /Users/kalifang/.platformio/packages/framework-arduinoespressif32/cores/esp32/cbuf.h
