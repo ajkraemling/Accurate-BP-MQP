@@ -37,7 +37,7 @@ private:
     int consecutiveAbove;
 
 public:
-    BaselineDetector(const String &name, int window, float threshold,
+    BaselineDetector(int window, float threshold,
                      int minDev, int consecutive);
     ~BaselineDetector();
     bool detect(int ppgSignal, float pressureSignal) override;
@@ -57,7 +57,7 @@ private:
     unsigned long lastPulseTime;
 
 public:
-    DerivativeDetector(const String &name, int window, int derivThreshold);
+    DerivativeDetector(int window, int derivThreshold);
     ~DerivativeDetector();
     bool detect(int ppgSignal, float pressureSignal) override;
     void reset() override;

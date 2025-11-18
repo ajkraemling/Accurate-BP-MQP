@@ -27,9 +27,11 @@ void BiquadFilter::reset() {
 // Use proper sample rate. For lowpass, use 5 Fc (Hz), for highpass, use 0.5 Fc (Hz), and use Q = 0.7071 (Butterworth bandpass is 1/sqrt(2))
 // The three zeroes are the first three inputs, the two poles after 1.0 are the last two inputs. 
 PPGBandpassFilter::PPGBandpassFilter()
-    : hpf(0.9565, -1.9131, 0.9565, -1.9111, 0.9150),  // 0.5 Hz HPF @ 50 Hz
+    : hpf(0.9695, -0.9695, 0, -0.9391, 0),  // 0.5 Hz HPF @ 50 Hz // USING FIRST PASS HERE, REDUCE LAG
       lpf(0.0675, 0.1349, 0.0675, -1.1430, 0.4128)    // 5 Hz LPF @ 50 Hz
-    // COMMON OTHER SAMPLE RATES:
+    // : hpf(0.9565, -1.9131, 0.9565, -1.9111, 0.9150),  // 0.5 Hz HPF @ 50 Hz
+    //   lpf(0.0675, 0.1349, 0.0675, -1.1430, 0.4128)    // 5 Hz LPF @ 50 Hz
+    // COMMON OTHER SAMPLE RATES FOR SECOND PASS:
     // 20 Hz (50ms delay):
     //   hpf(0.89486, -1.78972, 0.89486, -1.77683, 0.80080),  // 0.5 Hz HPF @ 20 Hz
     //   lpf(0.29289, 0.58578, 0.29289, -1.30070, 0.17157)    // 5 Hz LPF @ 20 Hz
