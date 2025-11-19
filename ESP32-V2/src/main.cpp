@@ -17,7 +17,7 @@ BPMonitor bpMonitor;
 
 // Baseline Detectors (BL):
 //   BL_W[window]_T[threshold]_D[minDev]_C[consecutive]
-//   - W = Window size (number of samples for rolling average)      // 
+//   - W = Window size (number of samples for rolling average)      //
 //   - T = Threshold multiplier (standard deviations above mean)    // Seems 2.5 may be sweet spot? Needs more testing
 //   - D = Minimum deviation (minimum signal change to detect)      // Doesn't seem to make a difference
 //   - C = Consecutive readings required to confirm pulse
@@ -36,10 +36,10 @@ BaselineDetector det8(20, 2.5, 5, 1);
 //   DRV_W[window]_T[threshold]
 //   - W = Window size (samples to calculate derivative)
 //   - T = Threshold (minimum rate of change to detect rising edge)
-DerivativeDetector det11(5, 20); // WAY TOO LOW
+DerivativeDetector det11(5, 20);  // WAY TOO LOW
 DerivativeDetector det12(10, 20); // WAY TOO LOW
-DerivativeDetector det13(5, 30); // WAY TOO HIGH
-DerivativeDetector det14(5, 1); // WAY TOO HIGH
+DerivativeDetector det13(5, 30);  // WAY TOO HIGH
+DerivativeDetector det14(5, 1);   // WAY TOO HIGH
 
 // Ensemble Detectors (ENS):
 //   ENS_[votes]of[total]
@@ -118,6 +118,7 @@ void setup()
 void loop()
 {
     int ppgSignal = ppgSensor.read();
+    int rawPPGSignal = ppgSensor.readRaw();
     float pressure = pressureSensor.readGaugePressure();
 
     bpMonitor.update(pressure, ppgSignal, display);

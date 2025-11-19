@@ -39,7 +39,7 @@ void BPMonitor::reset()
 void BPMonitor::printCSVHeader() const
 {
     // Format: Time,Pressure,PPGSignal,Detector1,Detector2,...,DetectorN
-    Serial.print("Time,Pressure,PPGSignal");
+    Serial.print("Time,Pressure,PPGSignal,rawPPGSignal");
     for (int i = 0; i < detectorCount; i++)
     {
         Serial.print(",");
@@ -48,7 +48,7 @@ void BPMonitor::printCSVHeader() const
     Serial.println();
 }
 
-void BPMonitor::printCSVRow(float pressure, int ppgSignal)
+void BPMonitor::printCSVRow(float pressure, int ppgSignal, int rawPPGSignal)
 {
     // Format: Time,Pressure,PPGSignal,Detector1,Detector2,...,DetectorN
     Serial.print(millis());
@@ -56,6 +56,8 @@ void BPMonitor::printCSVRow(float pressure, int ppgSignal)
     Serial.print(pressure, 2);
     Serial.print(",");
     Serial.print(ppgSignal);
+    Serial.print(",");
+    Serial.print(rawPPGSignal);
 
     // Run all detectors and print results
     for (int i = 0; i < detectorCount; i++)

@@ -49,7 +49,7 @@ while True:
             continue
         print(line)
 
-        if line.startswith("Time,Pressure,PPGSignal"):
+        if line.startswith("Time,Pressure,PPGSignal,rawPPGSignal"):
             csv_header = line
             parts = line.split(',')
             detector_names = parts[3:]
@@ -70,6 +70,7 @@ csv_writer.writerow(csv_header.split(','))
 window = 200
 
 ppg = deque([0.0]*window, maxlen=window)
+raw_ppg = deque([0.0]*window, maxlen=window)
 pressure = deque([0.0]*window, maxlen=window)
 detection_data = {name: deque([0.0]*window, maxlen=window) for name in detector_names}
 
@@ -85,6 +86,8 @@ gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1.2], hspace=0.5, wspace=0.3)
 # ---------------------------------------------------------------------------
 ax_ppg = fig.add_subplot(gs[0, 0])
 line_ppg, = ax_ppg.plot(ppg, color='tab:blue')
+line_rawppg, = ax_ppg.plot(raw_ppg, color='tab:green', alpha=0.6, label='Raw PPG')
+ax_ppg.legend(loc='upper left')
 ax_ppg.set_ylim(-2000, 2000)
 ax_ppg.set_title("PPG Signal")
 ax_ppg.set_xlabel("Samples")
@@ -109,6 +112,7 @@ text_pressure = ax_pressure.text(0.95, 0.95, '', transform=ax_pressure.transAxes
 # ---------------------------------------------------------------------------
 ax_combined = fig.add_subplot(gs[1, :])
 line_comb_ppg, = ax_combined.plot(ppg, color='tab:blue', alpha=0.7, label='PPG')
+line_comb_rawppg, = ax_combined.plot(raw_ppg, color='tab:green', alpha=0.5, label='Raw PPG')
 
 ax2 = ax_combined.twinx()
 line_comb_pressure, = ax2.plot(pressure, color='tab:red', alpha=0.7, label='Pressure')
@@ -168,9 +172,10 @@ def update(frame):
             timestamp = float(parts[0])
             pres = float(parts[1])
             ppg_val = float(parts[2])
+            raw_ppg_val = float(parts[3])
 
             det_vals = []
-            for v in parts[3:]:
+            for v in parts[4:]:
                 try:
                     det_vals.append(float(v))
                 except:
@@ -178,7 +183,9 @@ def update(frame):
 
             # Update buffers
             ppg.append(ppg_val)
+            raw_ppg.append(raw_ppg_val)
             pressure.append(pres)
+
             for i, name in enumerate(detector_names):
                 detection_data[name].append(det_vals[i] if i < len(det_vals) else 0)
 
@@ -190,6 +197,8 @@ def update(frame):
     # Update plots
     x = range(len(ppg))
     line_ppg.set_data(x, ppg)
+    line_rawppg.set_data(x, raw_ppg)
+    line_comb_rawppg.set_data(x, raw_ppg)
     line_pressure.set_data(x, pressure)
     line_comb_ppg.set_data(x, ppg)
     line_comb_pressure.set_data(x, pressure)
@@ -234,8 +243,12 @@ def update(frame):
     text_box.set_text("\n".join(combined_lines))
 
     return [
-        line_ppg, line_pressure, line_comb_ppg, line_comb_pressure, text_box
+        line_ppg, line_rawppg,
+        line_pressure,
+        line_comb_ppg, line_comb_rawppg, line_comb_pressure,
+        text_box
     ]
+
 
 # ============================================================================
 # Cleanup on close

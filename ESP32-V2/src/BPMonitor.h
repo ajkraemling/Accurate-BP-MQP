@@ -42,7 +42,7 @@ public:
     void addDetector(PulseDetector *detector);
     void reset();
     void update(float pressure, int ppgSignal, Display &display);
-    void printCSVRow(float pressure, int ppgSignal);
+    void printCSVRow(float pressure, int ppgSignal, int rawPPGSignal);
     void printCSVHeader() const;
     float getSystolic() const;
     BPState getState() const;
