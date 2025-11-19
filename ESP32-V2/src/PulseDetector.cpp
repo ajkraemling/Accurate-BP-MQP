@@ -16,7 +16,7 @@ int PulseDetector::getSystolic() const
 
 // BaselineDetector implementation
 BaselineDetector::BaselineDetector(int window, float threshold, int minDev, int consecutive)
-    : PulseDetector("BL_W" + to_string(window) + "_T" + to_string(threshold) + "_D" + to_string(minDev) + "_C" + to_string(consecutive)), windowSize(window), thresholdMultiplier(threshold),
+    : PulseDetector("BL_W" + String(window) + "_T" + String(threshold) + "_D" + String(minDev) + "_C" + String(consecutive)), windowSize(window), thresholdMultiplier(threshold),
       minDeviation(minDev), consecutiveRequired(consecutive),
       baselineIdx(0), baselineCount(0), baselineSum(0), consecutiveAbove(0)
 {
@@ -99,7 +99,7 @@ void BaselineDetector::reset()
 
 // DerivativeDetector implementation
 DerivativeDetector::DerivativeDetector(int window, int derivThreshold)
-    : PulseDetector("DRV_W" +to_string(window)+"_T" + to_string(derivThreshold)), windowSize(window), threshold(derivThreshold),
+    : PulseDetector("DRV_W" + String(window) + "_T" + String(derivThreshold)), windowSize(window), threshold(derivThreshold),
       bufferIdx(0), bufferCount(0), lastPulseTime(0)
 {
     signalBuffer = new int[windowSize];
