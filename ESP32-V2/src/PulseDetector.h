@@ -1,23 +1,21 @@
 #ifndef PULSE_DETECTOR_H
 #define PULSE_DETECTOR_H
 
-#include <Arduino.h>
-
-// Base class for pulse detection algorithms
+// No Arduino dependency - pure algorithm
 class PulseDetector
 {
 protected:
-    String name;
+    const char* name;
     int lastSignal;
     bool lastPulseState;
     int systolic;
 
 public:
-    PulseDetector(const String &detectorName);
+    PulseDetector(const char* detectorName);
     virtual ~PulseDetector() {}
     virtual bool detect(int ppgSignal, float pressureSignal) = 0;
     virtual void reset() = 0;
-    String getName() const;
+    const char* getName() const;
     int getSystolic() const;
 };
 
@@ -35,6 +33,8 @@ private:
     int baselineCount;
     long baselineSum;
     int consecutiveAbove;
+    
+    char nameBuffer[64];
 
 public:
     BaselineDetector(int window, float threshold,
@@ -43,7 +43,6 @@ public:
     bool detect(int ppgSignal, float pressureSignal) override;
     void reset() override;
 };
-
 
 // Derivative-based detection (detects rising edge)
 class DerivativeDetector : public PulseDetector
@@ -55,12 +54,16 @@ private:
     int bufferIdx;
     int bufferCount;
     unsigned long lastPulseTime;
+    
+    char nameBuffer[64];
 
 public:
     DerivativeDetector(int window, int derivThreshold);
     ~DerivativeDetector();
     bool detect(int ppgSignal, float pressureSignal) override;
     void reset() override;
+    
+    void setCurrentTime(unsigned long currentTime);
 };
 
 // Voting ensemble that combines multiple detectors
@@ -73,7 +76,7 @@ private:
     int votesRequired;
 
 public:
-    EnsembleDetector(const String &name, int requiredVotes);
+    EnsembleDetector(const char* name, int requiredVotes);
     void addDetector(PulseDetector *detector);
     bool detect(int ppgSignal, float pressureSignal) override;
     void reset() override;

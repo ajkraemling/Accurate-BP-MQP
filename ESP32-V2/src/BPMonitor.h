@@ -1,9 +1,6 @@
 #ifndef BP_MONITOR_H
 #define BP_MONITOR_H
 
-#include <Arduino.h>
-#include "config.h"
-#include "Display.h"
 #include "PulseDetector.h"
 
 enum BPState
@@ -14,10 +11,21 @@ enum BPState
     COMPLETE
 };
 
-struct DetectionResult
+struct BPMeasurement
 {
     float pressure;
-    int detectorIndex;
+    int ppgSignal;
+    int rawPPGSignal;
+    unsigned long timestamp;
+};
+
+struct BPStatus
+{
+    BPState state;
+    float currentPressure;
+    float maxPressure;
+    const char* statusMessage;
+    const char* detailMessage;
 };
 
 class BPMonitor
@@ -32,20 +40,29 @@ private:
     PulseDetector *detectors[MAX_DETECTORS];
     int detectorCount;
 
-    // Store detection results for CSV output
-    DetectionResult detectionResults[MAX_DETECTORS];
-    int detectionCount;
+    // Thresholds (could be injected via constructor)
+    float startPressure;
+    float minPressure;
+    float pressureDropThreshold;
+    unsigned long timeoutMs;
 
 public:
-    BPMonitor();
+    BPMonitor(float startPressure = 180.0f, 
+              float minPressure = 80.0f,
+              float pressureDropThreshold = 10.0f,
+              unsigned long timeoutMs = 90000);
+    
     ~BPMonitor();
+    
     void addDetector(PulseDetector *detector);
     void reset();
-    void update(float pressure, int ppgSignal, Display &display);
-    void printCSVRow(float pressure, int ppgSignal, int rawPPGSignal);
-    void printCSVHeader() const;
+    void update(const BPMeasurement& measurement);
+    
+    BPStatus getStatus() const;
     float getSystolic() const;
     BPState getState() const;
+    int getDetectorCount() const;
+    PulseDetector* getDetector(int index) const;
 };
 
 #endif

@@ -1,10 +1,10 @@
 #ifndef SENSORS_H
 #define SENSORS_H
 
-#include <Arduino.h>
 #include <Adafruit_MPRLS.h>
 #include "config.h"
 #include "filters.h"
+#include "DataLogger.h"
 
 class PressureSensor {
 private:
@@ -14,19 +14,17 @@ private:
 public:
     PressureSensor();
     bool begin();
-    void calibrate();
+    void calibrate(ILogger* logger = nullptr);
     float readGaugePressure();
 };
 
 class PPGSensor {
 private:
     PPGBandpassFilter filter;
+    int analogPin;
     
 public:
-    PPGSensor();
-    
-    // Constructor with custom sample rate
-    PPGSensor(int sampleRate);
+    PPGSensor(int pin = PPG_PIN);
     
     // Read filtered PPG signal
     int read();

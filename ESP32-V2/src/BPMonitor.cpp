@@ -1,8 +1,11 @@
 #include "BPMonitor.h"
+#include <string.h>
 
-BPMonitor::BPMonitor()
+BPMonitor::BPMonitor(float startPressure, float minPressure, 
+                     float pressureDropThreshold, unsigned long timeoutMs)
     : state(IDLE), systolic(0), maxPressure(0), startTime(0),
-      detectorCount(0), detectionCount(0)
+      detectorCount(0), startPressure(startPressure), minPressure(minPressure),
+      pressureDropThreshold(pressureDropThreshold), timeoutMs(timeoutMs)
 {
     for (int i = 0; i < MAX_DETECTORS; i++)
     {
@@ -29,47 +32,19 @@ void BPMonitor::reset()
     systolic = 0;
     maxPressure = 0;
     startTime = 0;
-    detectionCount = 0;
+    
     for (int i = 0; i < detectorCount; i++)
     {
         detectors[i]->reset();
     }
 }
 
-void BPMonitor::printCSVHeader() const
+void BPMonitor::update(const BPMeasurement& measurement)
 {
-    // Format: Time,Pressure,PPGSignal,Detector1,Detector2,...,DetectorN
-    Serial.print("Time,Pressure,PPGSignal,rawPPGSignal");
-    for (int i = 0; i < detectorCount; i++)
-    {
-        Serial.print(",");
-        Serial.print(detectors[i]->getName());
-    }
-    Serial.println();
-}
-
-void BPMonitor::printCSVRow(float pressure, int ppgSignal, int rawPPGSignal)
-{
-    // Format: Time,Pressure,PPGSignal,Detector1,Detector2,...,DetectorN
-    Serial.print(millis());
-    Serial.print(",");
-    Serial.print(pressure, 2);
-    Serial.print(",");
-    Serial.print(ppgSignal);
-    Serial.print(",");
-    Serial.print(rawPPGSignal);
-
-    // Run all detectors and print results
-    for (int i = 0; i < detectorCount; i++)
-    {
-        Serial.print(",");
-        Serial.print(detectors[i]->getSystolic());
-    }
-    Serial.println();
-}
-
-void BPMonitor::update(float pressure, int ppgSignal, Display &display)
-{
+    float pressure = measurement.pressure;
+    int ppgSignal = measurement.ppgSignal;
+    unsigned long currentTime = measurement.timestamp;
+    
     // Track max pressure
     if (pressure > maxPressure)
     {
@@ -79,47 +54,40 @@ void BPMonitor::update(float pressure, int ppgSignal, Display &display)
     switch (state)
     {
     case IDLE:
-        display.print("Waiting...");
-        if (pressure > BP_MIN_PRESSURE)
+        if (pressure > minPressure)
         {
             state = INFLATING;
         }
         break;
 
     case INFLATING:
-        display.print("Inflating cuff...", "",
-                      "Pressure: " + String((int)pressure) + " mmHg");
-
-        if (pressure >= BP_START_PRESSURE)
+        if (pressure >= startPressure)
         {
             state = MEASURING;
-            startTime = millis();
+            startTime = currentTime;
         }
-        else if (pressure < BP_MIN_PRESSURE && maxPressure > BP_START_PRESSURE)
+        else if (pressure < minPressure && maxPressure > startPressure)
         {
             reset();
         }
         break;
 
     case MEASURING:
-        display.print("Deflating cuff...", "",
-                      "Pressure: " + String((int)pressure) + " mmHg");
-
-        // Print CSV data every sample
-        if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD))
+        // Run detectors after sufficient pressure drop
+        if (pressure < (maxPressure - pressureDropThreshold))
         {
-            // Run all detectors
             for (int i = 0; i < detectorCount; i++)
             {
                 if (detectors[i]->getSystolic() == 0)
+                {
                     detectors[i]->detect(ppgSignal, pressure);
+                }
             }
         }
 
-        // Timeout
-        if (millis() - startTime > 90000)
+        // Check for timeout
+        if (currentTime - startTime > timeoutMs)
         {
-            Serial.println("# Measurement timeout");
             state = COMPLETE;
         }
 
@@ -131,9 +99,39 @@ void BPMonitor::update(float pressure, int ppgSignal, Display &display)
         break;
 
     case COMPLETE:
-        display.print("Measurement", "Complete");
+        // Stay in complete state
         break;
     }
+}
+
+BPStatus BPMonitor::getStatus() const
+{
+    BPStatus status;
+    status.state = state;
+    status.currentPressure = maxPressure; // Current would need to be tracked separately
+    status.maxPressure = maxPressure;
+    
+    switch (state)
+    {
+    case IDLE:
+        status.statusMessage = "Waiting...";
+        status.detailMessage = "";
+        break;
+    case INFLATING:
+        status.statusMessage = "Inflating cuff...";
+        status.detailMessage = "Pressure: ";
+        break;
+    case MEASURING:
+        status.statusMessage = "Deflating cuff...";
+        status.detailMessage = "Pressure: ";
+        break;
+    case COMPLETE:
+        status.statusMessage = "Measurement";
+        status.detailMessage = "Complete";
+        break;
+    }
+    
+    return status;
 }
 
 float BPMonitor::getSystolic() const
@@ -144,4 +142,18 @@ float BPMonitor::getSystolic() const
 BPState BPMonitor::getState() const
 {
     return state;
+}
+
+int BPMonitor::getDetectorCount() const
+{
+    return detectorCount;
+}
+
+PulseDetector* BPMonitor::getDetector(int index) const
+{
+    if (index >= 0 && index < detectorCount)
+    {
+        return detectors[index];
+    }
+    return nullptr;
 }

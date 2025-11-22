@@ -3,48 +3,37 @@
 #include "config.h"
 #include "sensors.h"
 #include "Display.h"
+#include "DisplayPresenter.h"
+#include "SerialLogger.h"
+#include "DataLogger.h"
 #include "BPMonitor.h"
 #include "PulseDetector.h"
 
+// Hardware adapters
 PressureSensor pressureSensor;
 PPGSensor ppgSensor;
 Display display;
+SerialLogger serialLogger;
+
+// Presenters and business logic
+DisplayPresenter presenter(&display);
 BPMonitor bpMonitor;
+DataLogger dataLogger(&serialLogger, &bpMonitor);
 
-// ============================================================================
-// All detection algorithms
-// ============================================================================
-
-// Baseline Detectors (BL):
-//   BL_W[window]_T[threshold]_D[minDev]_C[consecutive]
-//   - W = Window size (number of samples for rolling average)      //
-//   - T = Threshold multiplier (standard deviations above mean)    // Seems 2.5 may be sweet spot? Needs more testing
-//   - D = Minimum deviation (minimum signal change to detect)      // Doesn't seem to make a difference
-//   - C = Consecutive readings required to confirm pulse
+// Detection algorithms
 BaselineDetector det1(20, 2.5, 5, 2);
-BaselineDetector det2(40, 2.5, 5, 2); // WAY TOO LOW
+BaselineDetector det2(40, 2.5, 5, 2);
 BaselineDetector det3(60, 2.5, 5, 2);
 BaselineDetector det4(10, 2.5, 5, 2);
-BaselineDetector det5(20, 1.0, 5, 2); // WAY TOO HIGH
-BaselineDetector det6(20, 1.5, 5, 1); // TOO LOW
+BaselineDetector det5(20, 1.0, 5, 2);
+BaselineDetector det6(20, 1.5, 5, 1);
 BaselineDetector det7(10, 1.0, 5, 1);
 BaselineDetector det8(20, 2.5, 5, 1);
-// BaselineDetector det9(40, 2.5, 10, 3);
-// BaselineDetector det10(40, 2.5, 10, 1); // WAY TOO HIGH
 
-// Derivative Detectors (DRV):
-//   DRV_W[window]_T[threshold]
-//   - W = Window size (samples to calculate derivative)
-//   - T = Threshold (minimum rate of change to detect rising edge)
-DerivativeDetector det11(5, 20);  // WAY TOO LOW
-DerivativeDetector det12(10, 20); // WAY TOO LOW
-DerivativeDetector det13(5, 30);  // WAY TOO HIGH
-DerivativeDetector det14(5, 1);   // WAY TOO HIGH
-
-// Ensemble Detectors (ENS):
-//   ENS_[votes]of[total]
-//   - Voting system requiring N votes from M total detectors
-// EnsembleDetector ensemble("ENS_3of5", 3);
+DerivativeDetector det11(5, 20);
+DerivativeDetector det12(10, 20);
+DerivativeDetector det13(5, 30);
+DerivativeDetector det14(5, 1);
 
 void setup()
 {
@@ -52,12 +41,13 @@ void setup()
     Wire.begin(21, 22);
     delay(500);
 
-    Serial.println("\n========== Blood Pressure Monitor ==========");
+    serialLogger.logLine("\n========== Blood Pressure Monitor ==========");
 
     // Initialize pressure sensor
     if (!pressureSensor.begin())
     {
-        Serial.println("ERROR: Pressure sensor not found!");
+        serialLogger.logLine("ERROR: Pressure sensor not found!");
+        presenter.showError("Pressure sensor");
         while (1)
             delay(10);
     }
@@ -65,12 +55,12 @@ void setup()
     // Initialize display
     if (!display.begin())
     {
-        Serial.println("ERROR: LCD not found!");
+        serialLogger.logLine("ERROR: LCD not found!");
         while (1)
             delay(10);
     }
 
-    // Add all detectors to BP monitor
+    // Add detectors to BP monitor
     bpMonitor.addDetector(&det1);
     bpMonitor.addDetector(&det2);
     bpMonitor.addDetector(&det3);
@@ -79,50 +69,59 @@ void setup()
     bpMonitor.addDetector(&det6);
     bpMonitor.addDetector(&det7);
     bpMonitor.addDetector(&det8);
-    // bpMonitor.addDetector(&det9);
-    // bpMonitor.addDetector(&det10);
-    // bpMonitor.addDetector(&det11);
-    // bpMonitor.addDetector(&det12);
-    // bpMonitor.addDetector(&det13);
-    // bpMonitor.addDetector(&det14);
 
-    // Setup ensemble with best performing individual detectors
-    // ensemble.addDetector(&det1);
-    // ensemble.addDetector(&det3);
-    // ensemble.addDetector(&det4);
-    // ensemble.addDetector(&det7);
-    // ensemble.addDetector(&det8);
-    // bpMonitor.addDetector(&ensemble);
-
-    // Countdown and calibration
+    // Countdown
     for (int i = 5; i > 0; i--)
     {
-        display.showCountdown(i);
-        Serial.print(i);
-        Serial.print("... ");
+        presenter.showCountdown(i);
+        char buffer[16];
+        sprintf(buffer, "%d... ", i);
+        serialLogger.log(buffer);
         delay(1000);
     }
-    Serial.println();
+    serialLogger.logLine("");
 
-    display.print("Calibrating...");
-    pressureSensor.calibrate();
+    // Calibration
+    presenter.showCalibrating();
+    pressureSensor.calibrate(&serialLogger);
 
-    display.print("Ready!");
+    presenter.showReady();
     delay(1000);
 
-    Serial.println("\n========== Ready for Measurement ==========");
-    // Print CSV header
-    bpMonitor.printCSVHeader();
+    serialLogger.logLine("\n========== Ready for Measurement ==========");
+    dataLogger.printHeader();
 }
 
 void loop()
 {
+    // Read sensors
     int ppgSignal = ppgSensor.read();
     int rawPPGSignal = ppgSensor.readRaw();
     float pressure = pressureSensor.readGaugePressure();
+    unsigned long timestamp = millis();
 
-    bpMonitor.update(pressure, ppgSignal, display);
-    bpMonitor.printCSVRow(pressure, ppgSignal);
+    // Create measurement
+    BPMeasurement measurement;
+    measurement.pressure = pressure;
+    measurement.ppgSignal = ppgSignal;
+    measurement.rawPPGSignal = rawPPGSignal;
+    measurement.timestamp = timestamp;
+
+    // Update business logic
+    bpMonitor.update(measurement);
+    
+    // Update UI
+    BPStatus status = bpMonitor.getStatus();
+    presenter.showStatus(status);
+    
+    // Log data
+    dataLogger.printMeasurement(measurement);
+    
+    // Check for timeout
+    if (status.state == COMPLETE)
+    {
+        dataLogger.printComment("Measurement complete or timeout");
+    }
 
     delay(SAMPLE_RATE_MS);
 }

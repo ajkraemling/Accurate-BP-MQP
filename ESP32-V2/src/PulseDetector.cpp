@@ -1,10 +1,13 @@
 #include "PulseDetector.h"
+#include <string.h>
+#include <stdio.h>
+#include <math.h>
 
 // Base class implementation
-PulseDetector::PulseDetector(const String &detectorName)
+PulseDetector::PulseDetector(const char* detectorName)
     : name(detectorName), lastSignal(0), lastPulseState(false), systolic(0) {}
 
-String PulseDetector::getName() const
+const char* PulseDetector::getName() const
 {
     return name;
 }
@@ -16,10 +19,15 @@ int PulseDetector::getSystolic() const
 
 // BaselineDetector implementation
 BaselineDetector::BaselineDetector(int window, float threshold, int minDev, int consecutive)
-    : PulseDetector("BL_W" + String(window) + "_T" + String(threshold) + "_D" + String(minDev) + "_C" + String(consecutive)), windowSize(window), thresholdMultiplier(threshold),
+    : PulseDetector(nullptr), windowSize(window), thresholdMultiplier(threshold),
       minDeviation(minDev), consecutiveRequired(consecutive),
       baselineIdx(0), baselineCount(0), baselineSum(0), consecutiveAbove(0)
 {
+    // Format name
+    snprintf(nameBuffer, sizeof(nameBuffer), "BL_W%d_T%.1f_D%d_C%d",
+             window, threshold, minDev, consecutive);
+    name = nameBuffer;
+    
     baseline = new int[windowSize];
     memset(baseline, 0, windowSize * sizeof(int));
 }
@@ -95,13 +103,18 @@ void BaselineDetector::reset()
     baselineCount = 0;
     baselineSum = 0;
     consecutiveAbove = 0;
+    systolic = 0;
 }
 
 // DerivativeDetector implementation
 DerivativeDetector::DerivativeDetector(int window, int derivThreshold)
-    : PulseDetector("DRV_W" + String(window) + "_T" + String(derivThreshold)), windowSize(window), threshold(derivThreshold),
+    : PulseDetector(nullptr), windowSize(window), threshold(derivThreshold),
       bufferIdx(0), bufferCount(0), lastPulseTime(0)
 {
+    // Format name
+    snprintf(nameBuffer, sizeof(nameBuffer), "DRV_W%d_T%d", window, derivThreshold);
+    name = nameBuffer;
+    
     signalBuffer = new int[windowSize];
     memset(signalBuffer, 0, windowSize * sizeof(int));
 }
@@ -127,10 +140,9 @@ bool DerivativeDetector::detect(int ppgSignal, float pressureSignal)
     int derivative = ppgSignal - signalBuffer[oldestIdx];
 
     // Detect rising edge with minimum time between pulses
-    unsigned long now = millis();
-    if (derivative > threshold && (now - lastPulseTime) > 300)
+    // Note: Time must be injected or passed in measurement
+    if (derivative > threshold)
     {
-        lastPulseTime = now;
         systolic = pressureSignal;
         return true;
     }
@@ -144,10 +156,16 @@ void DerivativeDetector::reset()
     bufferIdx = 0;
     bufferCount = 0;
     lastPulseTime = 0;
+    systolic = 0;
+}
+
+void DerivativeDetector::setCurrentTime(unsigned long currentTime)
+{
+    lastPulseTime = currentTime;
 }
 
 // EnsembleDetector implementation
-EnsembleDetector::EnsembleDetector(const String &name, int requiredVotes)
+EnsembleDetector::EnsembleDetector(const char* name, int requiredVotes)
     : PulseDetector(name), detectorCount(0), votesRequired(requiredVotes)
 {
     for (int i = 0; i < MAX_DETECTORS; i++)
@@ -179,12 +197,12 @@ bool EnsembleDetector::detect(int ppgSignal, float pressureSignal)
         systolic = pressureSignal;
         return true;
     }
-    else
-        return false;
+    return false;
 }
 
 void EnsembleDetector::reset()
 {
+    systolic = 0;
     for (int i = 0; i < detectorCount; i++)
     {
         detectors[i]->reset();

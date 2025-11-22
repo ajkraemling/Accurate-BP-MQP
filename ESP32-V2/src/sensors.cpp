@@ -1,4 +1,5 @@
 #include "sensors.h"
+#include <Arduino.h>
 
 PressureSensor::PressureSensor()
     : mpr(RESET_PIN, EOC_PIN), atmosphericPressure(0) {}
@@ -8,9 +9,13 @@ bool PressureSensor::begin()
     return mpr.begin();
 }
 
-void PressureSensor::calibrate()
+void PressureSensor::calibrate(ILogger* logger)
 {
-    Serial.println("Calibrating atmospheric pressure...");
+    if (logger)
+    {
+        logger->logLine("Calibrating atmospheric pressure...");
+    }
+    
     float sum = 0;
     int samples = CALIBRATION_TIME_MS / 10;
 
@@ -21,10 +26,14 @@ void PressureSensor::calibrate()
     }
 
     atmosphericPressure = sum / samples;
-    Serial.print("Baseline Pressure: ");
-    Serial.print(atmosphericPressure, 1);
-    Serial.println(" hPa");
-    Serial.println("Calibration complete!");
+    
+    if (logger)
+    {
+        char buffer[64];
+        sprintf(buffer, "Baseline Pressure: %.1f hPa", atmosphericPressure);
+        logger->logLine(buffer);
+        logger->logLine("Calibration complete!");
+    }
 }
 
 float PressureSensor::readGaugePressure()
@@ -33,19 +42,19 @@ float PressureSensor::readGaugePressure()
     return (absolute - atmosphericPressure) * HPA_TO_MMHG;
 }
 
-PPGSensor::PPGSensor()
-    : filter() {}
+PPGSensor::PPGSensor(int pin)
+    : filter(), analogPin(pin) {}
 
 int PPGSensor::read()
 {
-    int raw = analogRead(PPG_PIN);
+    int raw = analogRead(analogPin);
     float filtered = filter.filter((float)raw);
     return (int)filtered;
 }
 
 int PPGSensor::readRaw()
 {
-    return analogRead(PPG_PIN);
+    return analogRead(analogPin);
 }
 
 void PPGSensor::resetFilter()

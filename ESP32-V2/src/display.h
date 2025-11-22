@@ -1,13 +1,14 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
-#include <Arduino.h>
 #include <Wire.h>
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_I2Cexp.h>
+#include "DisplayPresenter.h"
 #include "config.h"
 
-class Display
+// Hardware adapter - implements IDisplay interface
+class Display : public IDisplay
 {
 private:
     hd44780_I2Cexp lcd;
@@ -15,10 +16,11 @@ private:
 public:
     Display();
     bool begin();
-    void clear();
-    void print(const String &line1, const String &line2 = "",
-               const String &line3 = "", const String &line4 = "");
-    void showCountdown(int seconds);
+    
+    // IDisplay interface implementation
+    void showLines(const char* line1, const char* line2 = nullptr,
+                   const char* line3 = nullptr, const char* line4 = nullptr) override;
+    void clear() override;
 };
 
 #endif
