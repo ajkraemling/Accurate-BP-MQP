@@ -1,7 +1,6 @@
 #ifndef PULSE_DETECTOR_H
 #define PULSE_DETECTOR_H
 
-// No Arduino dependency - pure algorithm
 class PulseDetector
 {
 protected:
