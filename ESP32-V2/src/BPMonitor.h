@@ -36,7 +36,7 @@ private:
     float maxPressure;
     unsigned long startTime;
 
-    static const int MAX_DETECTORS = 20;
+    static const int MAX_DETECTORS = 200;
     PulseDetector *detectors[MAX_DETECTORS];
     int detectorCount;
 
