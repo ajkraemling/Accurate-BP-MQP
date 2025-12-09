@@ -1,0 +1,144 @@
+#ifndef PULSE_DETECTOR_H
+#define PULSE_DETECTOR_H
+
+struct DetectionRecord
+{
+    float pressure;           // Systolic pressure at this detection
+    unsigned long timestamp;  // When detected
+    float confidence;         // Confidence score (updated as more beats follow)
+    int subsequentBeats;      // How many beats followed this one
+};
+
+// Heart rate range for validation
+struct HeartRateRange
+{
+    unsigned long minInterval;  // Maximum HR (shortest interval)
+    unsigned long maxInterval;  // Minimum HR (longest interval)
+    bool isValid;
+    
+    HeartRateRange() : minInterval(333), maxInterval(1500), isValid(false) {}
+    
+    void setFromBPM(float baselineBPM, float tolerance = 40.0f) {
+        if (baselineBPM > 0) {
+            float minBPM = baselineBPM - tolerance;
+            float maxBPM = baselineBPM + tolerance;
+            
+            // Clamp to reasonable limits
+            if (minBPM < 40) minBPM = 40;
+            if (maxBPM > 180) maxBPM = 180;
+            
+            // Convert BPM to milliseconds: interval = 60000 / BPM
+            maxInterval = (unsigned long)(60000.0f / minBPM);  // Slower HR = longer interval
+            minInterval = (unsigned long)(60000.0f / maxBPM);  // Faster HR = shorter interval
+            isValid = true;
+        }
+    }
+};
+
+class SystolicDetector
+{
+protected:
+    const char* name;
+    int lastSignal;
+    bool lastPulseState;
+
+    // Track ALL detections
+    static const int MAX_DETECTIONS = 20;
+    DetectionRecord detections[MAX_DETECTIONS];
+    int detectionCount;
+
+    // Track intervals between beats for consistency checking
+    unsigned long lastBeatTime;
+    static const int MAX_INTERVALS = 10;
+    unsigned long recentIntervals[MAX_INTERVALS];
+    int intervalCount;
+
+    // Heart rate range for validation
+    HeartRateRange hrRange;
+
+    // Helper to record a new detection
+    void recordDetection(float pressure, unsigned long timestamp);
+    
+    // Helper to update confidence scores based on new beat
+    void updateConfidenceScores(unsigned long currentTimestamp);
+    
+    // Helper to calculate interval consistency
+    float calculateIntervalConsistency(int detectionIndex);
+
+public:
+    SystolicDetector(const char* detectorName);
+    virtual ~SystolicDetector() {}
+    virtual bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) = 0;
+    virtual void reset() = 0;
+    
+    const char* getName() const;
+    int getDetectionCount() const;
+    
+    // Set expected heart rate range
+    void setHeartRateRange(const HeartRateRange& range);
+    
+    // Get best detection(s)
+    DetectionRecord getBestDetection() const;
+    void getTopDetections(DetectionRecord* output, int maxCount, int* actualCount) const;
+};
+
+// Statistical baseline detection with configurable parameters
+class BaselineDetector : public SystolicDetector
+{
+private:
+    int windowSize;
+    float thresholdMultiplier;
+    int minDeviation;
+
+    int *baseline;
+    int baselineIdx;
+    int baselineCount;
+    long baselineSum;
+    int consecutiveAbove;
+    
+    char nameBuffer[64];
+
+public:
+    BaselineDetector(int window, float threshold,
+                     int minDev);
+    ~BaselineDetector();
+    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    void reset() override;
+};
+
+// Derivative-based detection (detects rising edge)
+class DerivativeDetector : public SystolicDetector
+{
+private:
+    int windowSize;
+    int threshold;
+    int *signalBuffer;
+    int bufferIdx;
+    int bufferCount;
+    
+    char nameBuffer[64];
+
+public:
+    DerivativeDetector(int window, int derivThreshold);
+    ~DerivativeDetector();
+    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    void reset() override;
+};
+
+// Voting ensemble that combines multiple detectors
+class EnsembleDetector : public SystolicDetector
+{
+private:
+    static const int MAX_DETECTORS = 10;
+    SystolicDetector *detectors[MAX_DETECTORS];
+    int detectorCount;
+    int votesRequired;
+
+public:
+    EnsembleDetector(const char* name, int requiredVotes);
+    void addDetector(SystolicDetector *detector);
+    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    void reset() override;
+};
+
+#endif

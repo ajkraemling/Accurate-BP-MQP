@@ -25,6 +25,7 @@ public:
     void printHeader();
     void printMeasurement(const BPMeasurement& measurement);
     void printComment(const char* comment);
+    void printReport();  // Print detailed report at end of measurement
 };
 
 #endif

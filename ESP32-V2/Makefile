@@ -3,13 +3,15 @@ CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -I./src
 
 # Source files from src/ directory
 SOURCES = csv_test_main.cpp \
-          src/PulseDetector.cpp \
+          src/SystolicDetector.cpp \
           src/BPMonitor.cpp \
+          src/MAPDetector.cpp \
           src/filters.cpp
 
 OBJECTS = csv_test_main.o \
-          PulseDetector.o \
+          SystolicDetector.o \
           BPMonitor.o \
+          MAPDetector.o \
           filters.o
 
 TARGET = bp_detector_test
@@ -26,11 +28,14 @@ csv_test_main.o: csv_test_main.cpp
 	$(CXX) $(CXXFLAGS) -c csv_test_main.cpp -o csv_test_main.o
 
 # Compile sources from src/ directory
-PulseDetector.o: src/PulseDetector.cpp src/PulseDetector.h
-	$(CXX) $(CXXFLAGS) -c src/PulseDetector.cpp -o PulseDetector.o
+SystolicDetector.o: src/SystolicDetector.cpp src/SystolicDetector.h
+	$(CXX) $(CXXFLAGS) -c src/SystolicDetector.cpp -o SystolicDetector.o
 
 BPMonitor.o: src/BPMonitor.cpp src/BPMonitor.h
 	$(CXX) $(CXXFLAGS) -c src/BPMonitor.cpp -o BPMonitor.o
+
+MAPDetector.o: src/MAPDetector.cpp src/MAPDetector.h
+	$(CXX) $(CXXFLAGS) -c src/MAPDetector.cpp -o MAPDetector.o
 
 filters.o: src/filters.cpp src/filters.h
 	$(CXX) $(CXXFLAGS) -c src/filters.cpp -o filters.o
@@ -43,7 +48,7 @@ clean:
 run: $(TARGET)
 	./$(TARGET) Harleen.csv
 
-# Run with directory
+# Run with directory (will now search recursively)
 run-dir: $(TARGET)
 	./$(TARGET) ./data/ ./results/
 

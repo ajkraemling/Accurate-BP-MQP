@@ -11,6 +11,10 @@ public:
     // Constructor with coefficients
     BiquadFilter(float b0_, float b1_, float b2_, float a1_, float a2_);
     
+    BiquadFilter();
+    
+    void setCoefficients(float b0_, float b1_, float b2_, float a1_, float a2_);
+
     // Filter a single sample
     float filter(float x);
     
@@ -23,18 +27,28 @@ private:
     BiquadFilter hpf;  // Highpass filter (removes DC drift)
     BiquadFilter lpf;  // Lowpass filter (removes high-freq noise)
     
+    float sampleRate;
+    float hpfCutoff;
+    float lpfCutoff;
+    
+    // Calculate and set biquad coefficients for given cutoff
+    void updateFilterCoefficients();
+
 public:
-    // Constructor - defaults to 50 Hz sample rate
-    // 0.5 Hz highpass, 5 Hz lowpass (0.5-5 Hz passband)
-    // IF SAMPLE RATE CHANGES, THIS MUST CHANGE
-    // IE IF DELAY CHANGES, CHANGE THIS
-    PPGBandpassFilter();
+    PPGBandpassFilter(float sampleRate = 50.0f);
+    
+    // Configure filter based on expected heart rate
+    void setHeartRateRange(float baselineBPM, float tolerance = 60.0f);
     
     // Filter a single PPG sample
     float filter(float input);
     
     // Reset both filters
     void reset();
+    
+    // Get current cutoff frequencies (for debugging)
+    float getHPFCutoff() const { return hpfCutoff; }
+    float getLPFCutoff() const { return lpfCutoff; }
 };
 
 #endif

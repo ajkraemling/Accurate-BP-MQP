@@ -1,0 +1,833 @@
+% Blood Pressure Detection CSV Comparison Tool
+% This script compares multiple CSV files with different detection algorithms
+% for systolic blood pressure measurement
+% Now supports multiple runs within a single CSV file
+% Uses first AUS_PULSE_HEARD as ground truth for error analysis
+clear; clc; close all;
+
+fprintf('=== STARTING BLOOD PRESSURE ANALYSIS ===\n');
+
+%% Configuration
+% Select CSV files to analyze
+% [files, path] = uigetfile('*.csv', 'Select CSV files to compare', 'MultiSelect', 'on');
+
+%% Configuration
+folderPath = uigetdir('.', 'Select folder containing CSV files');
+if isequal(folderPath, 0)
+    disp('No folder selected. Exiting.');
+    return;
+end
+
+% Recursively find CSV files
+csvFiles = dir(fullfile(folderPath, '**', '*.csv'));
+
+if isempty(csvFiles)
+    disp('No CSV files found in selected folder.');
+    return;
+end
+
+fprintf('Found %d CSV files.\n', length(csvFiles));
+
+% Convert to proper list of full paths
+files = arrayfun(@(f) fullfile(f.folder, f.name), csvFiles, 'UniformOutput', false);
+
+
+if isequal(files, 0)
+    disp('No files selected. Exiting.');
+    return;
+end
+
+% Ensure files is a cell array
+if ~iscell(files)
+    files = {files};
+end
+disp('DEBUG: Showing first 3 file paths:');
+disp(files(1:min(3, numel(files))));
+
+
+%% Load and Process Data
+allRuns = {};
+runCounter = 1;
+
+fprintf('Loading %d files...\n', length(files));
+
+for fileIdx = 1:length(files)
+    %filename = fullfile(path, files{fileIdx});
+    filename = files{fileIdx};
+    fprintf(' Loading: %s\n', files{fileIdx});
+    
+    % Read the CSV file with preserved column names
+    data = readtable(filename, 'VariableNamingRule', 'preserve');
+    
+    fprintf('  Initial data has %d rows\n', height(data));
+    
+    % Split data into runs
+    runs = splitIntoRuns(data);
+    
+    fprintf('  Found %d run(s) in this file\n', length(runs));
+    
+    % Process each run
+    for runIdx = 1:length(runs)
+        runData = runs{runIdx};
+        
+        % Create run info structure
+        runInfo = struct();
+        if length(runs) == 1
+            runInfo.filename = files{fileIdx};
+            runInfo.displayName = files{fileIdx};
+        else
+            runInfo.filename = files{fileIdx};
+            runInfo.displayName = sprintf('%s (Run %d)', files{fileIdx}, runIdx);
+        end
+        runInfo.fileIdx = fileIdx;
+        runInfo.runIdx = runIdx;
+        runInfo.data = runData;
+        
+        % Initialize optional fields
+        runInfo.hasRawPPG = false;
+        runInfo.hasAusPulse = false;
+        runInfo.pulseHeardIndices = [];
+        runInfo.hasGroundTruth = false;
+        runInfo.groundTruthPressure = NaN;
+        
+        % Check for rawPPGSignal column
+        if ismember('rawPPGSignal', runData.Properties.VariableNames)
+            rawPPG = runData.rawPPGSignal;
+            if (ismember("PPGSignal", runData.Properties.VariableNames))
+                runInfo.ppg = runData.PPGSignal;
+            else
+                runInfo.ppg = rawPPG;
+            end
+            rawPPG = rawPPG - mean(rawPPG, 'omitnan') + mean(runInfo.ppg, 'omitnan');
+            runInfo.rawPPG = rawPPG;
+            runInfo.hasRawPPG = true;
+        elseif ismember('PPG', runData.Properties.VariableNames)
+            rawPPG = runData.PPG;
+            if (ismember("PPGSignal", runData.Properties.VariableNames))
+                runInfo.ppg = runData.PPGSignal;
+            else
+                runInfo.ppg = rawPPG;
+            end
+            rawPPG = rawPPG - mean(rawPPG, 'omitnan') + mean(runInfo.ppg, 'omitnan');
+            runInfo.rawPPG = rawPPG;
+            runInfo.hasRawPPG = true;
+        end
+
+        % Data is already filtered (pressure >= 10) by splitIntoRuns
+        if (ismember("Time", runData.Properties.VariableNames))
+            runInfo.time = runData.Time / 1000; % Convert to seconds
+        elseif ((ismember("Timestamp", runData.Properties.VariableNames)))
+            runInfo.time = runData.Timestamp / 1000;
+        end
+
+        if (ismember("PPGSignal", runData.Properties.VariableNames))
+            runInfo.ppg = runData.PPGSignal;
+        else
+            if isfield(runInfo, "rawPPG")
+                runInfo.ppg = runInfo.rawPPG;
+            else
+                runInfo.ppg = 0;
+            end
+        end
+        runInfo.pressure = runData.Pressure;
+        
+        % Check for AUS_PULSE_HEARD column
+        ausColExists = ismember('AUS_PULSE_HEARD', runData.Properties.VariableNames);
+        fprintf('  Checking for AUS_PULSE_HEARD: %d\n', ausColExists);
+        
+        if ausColExists
+            runInfo.ausPulseHeard = runData.AUS_PULSE_HEARD;
+            runInfo.pulseHeardIndices = find(runData.AUS_PULSE_HEARD == 1);
+            runInfo.hasAusPulse = true;
+            fprintf('  *** FOUND AUS_PULSE_HEARD with %d pulses ***\n', length(runInfo.pulseHeardIndices));
+            
+            % Extract ground truth (first pulse heard)
+            if ~isempty(runInfo.pulseHeardIndices)
+                firstPulseIdx = runInfo.pulseHeardIndices(1);
+                runInfo.groundTruthPressure = runInfo.pressure(firstPulseIdx);
+                runInfo.groundTruthTime = runInfo.time(firstPulseIdx);
+                runInfo.hasGroundTruth = true;
+                fprintf('  *** GROUND TRUTH: %.1f mmHg at %.2f s ***\n', ...
+                    runInfo.groundTruthPressure, runInfo.groundTruthTime);
+            end
+        else
+            fprintf('  AUS_PULSE_HEARD not found\n');
+        end
+        
+        % Get detector columns (exclude system columns and AUS_PULSE_HEARD)
+        allCols = runData.Properties.VariableNames;
+        excludeCols = {'Time', 'Pressure', 'PPGSignal', 'rawPPGSignal', 'AUS_PULSE_HEARD'};
+        detectorCols = allCols(~ismember(allCols, excludeCols));
+        runInfo.detectors = detectorCols;
+        
+        fprintf('  Found %d detector columns\n', length(detectorCols));
+        
+        % Find detection points for algorithm detectors only
+        runInfo.detections = containers.Map();
+        for j = 1:length(detectorCols)
+            detectorName = detectorCols{j};
+            detectorValues = runData.(detectorName);
+            
+            % Find first non-zero index
+            nonZeroIdx = find(detectorValues ~= 0, 1);
+            detection = struct();
+            if ~isempty(nonZeroIdx)
+                detection.time = runInfo.time(nonZeroIdx);
+                detection.pressure = runInfo.pressure(nonZeroIdx);
+                detection.value = detectorValues(nonZeroIdx);
+                detection.detected = true;
+                
+                % Calculate error from ground truth if available
+                if runInfo.hasGroundTruth
+                    detection.error = detection.pressure - runInfo.groundTruthPressure;
+                    detection.absError = abs(detection.error);
+                else
+                    detection.error = NaN;
+                    detection.absError = NaN;
+                end
+            else
+                detection.time = NaN;
+                detection.pressure = NaN;
+                detection.value = NaN;
+                detection.detected = false;
+                detection.error = NaN;
+                detection.absError = NaN;
+            end
+            runInfo.detections(detectorName) = detection;
+        end
+        
+        % Add to runs list
+        allRuns{runCounter} = runInfo;
+        runCounter = runCounter + 1;
+    end
+end
+
+% Get all unique detectors
+allDetectors = {};
+for i = 1:length(allRuns)
+    allDetectors = union(allDetectors, allRuns{i}.detectors);
+end
+
+fprintf('\nFound %d total run(s) across all files.\n', length(allRuns));
+fprintf('Found %d unique detectors across all runs.\n', length(allDetectors));
+
+% Count runs with ground truth
+runsWithGroundTruth = sum(cellfun(@(r) r.hasGroundTruth, allRuns));
+fprintf('Found %d run(s) with ground truth data.\n\n', runsWithGroundTruth);
+
+%% Create Main Tabbed Figure
+screenSize = get(0, 'ScreenSize');
+figWidth = 1600;
+figHeight = 900;
+figLeft = max(1, (screenSize(3) - figWidth) / 2);
+figBottom = max(1, (screenSize(4) - figHeight) / 2);
+
+mainFig = figure('Name', 'Blood Pressure Analysis', ...
+    'Position', [figLeft, figBottom, figWidth, figHeight], ...
+    'NumberTitle', 'off');
+
+% Create tab group
+tabGroup = uitabgroup(mainFig);
+
+% Create tabs for each run
+for i = 1:length(allRuns)
+    [~, baseName, ~] = fileparts(allRuns{i}.filename);
+    if allRuns{i}.runIdx > 0
+        tabName = sprintf('%s-R%d', baseName, allRuns{i}.runIdx);
+    else
+        tabName = baseName;
+    end
+    tab = uitab(tabGroup, 'Title', tabName);
+    createFileTab(tab, allRuns{i}, i);
+end
+
+% Create comparison tabs
+compTab = uitab(tabGroup, 'Title', 'Detector Comparison');
+createComparisonTab(compTab, allRuns, allDetectors);
+
+% Create ground truth error analysis tab if applicable
+if runsWithGroundTruth > 0
+    gtTab = uitab(tabGroup, 'Title', 'Ground Truth Analysis');
+    createGroundTruthTab(gtTab, allRuns, allDetectors);
+end
+
+blTab = uitab(tabGroup, 'Title', 'Baseline Analysis');
+createBLAnalysisTab(blTab, allRuns, allDetectors);
+
+drvTab = uitab(tabGroup, 'Title', 'Derivative Analysis');
+createDRVAnalysisTab(drvTab, allRuns, allDetectors);
+
+fprintf('\nAnalysis complete! Use the tabs to navigate between views.\n');
+
+%% Helper Functions
+
+function runs = splitIntoRuns(data)
+    if (~ismember("Pressure", data.Properties.VariableNames))
+        
+    pressure = data.Pressure;
+    runs = {};
+    
+    inRun = false;
+    runStartIdx = [];
+    
+    for i = 1:length(pressure)
+        if ~inRun
+            if pressure(i) >= 30
+                runStartIdx = i;
+                inRun = true;
+            end
+        else
+            if pressure(i) < 10
+                runEndIdx = i - 1;
+                
+                if runEndIdx >= runStartIdx
+                    runData = data(runStartIdx:runEndIdx, :);
+                    validIdx = runData.Pressure >= 10;
+                    runData = runData(validIdx, :);
+                    
+                    if height(runData) >= 10
+                        runs{end + 1} = runData;
+                    end
+                end
+                
+                inRun = false;
+            end
+        end
+    end
+    
+    % Handle run extending to end of file
+    if inRun
+        runData = data(runStartIdx:end, :);
+        validIdx = runData.Pressure >= 10;
+        runData = runData(validIdx, :);
+        
+        if height(runData) >= 10
+            runs{end + 1} = runData;
+        end
+    end
+    
+    % If no runs detected, use all valid pressure data
+    if isempty(runs)
+        validIdx = data.Pressure >= 10;
+        if sum(validIdx) >= 10
+            runs = {data(validIdx, :)};
+        end
+    end
+end
+
+function createFileTab(parentTab, runInfo, runNum)
+    ax = axes('Parent', parentTab, 'Position', [0.08, 0.15, 0.78, 0.75]);
+    
+    % Safety check
+    if ~isfield(runInfo, 'hasAusPulse')
+        runInfo.hasAusPulse = false;
+        runInfo.pulseHeardIndices = [];
+    end
+    
+    fprintf('Creating tab for run, hasAusPulse=%d, numPulses=%d\n', ...
+        runInfo.hasAusPulse, length(runInfo.pulseHeardIndices));
+    
+    % Plot PPG on left y-axis
+    yyaxis left
+    hold on; grid on;
+    if runInfo.hasRawPPG
+        h3 = plot(runInfo.time, runInfo.rawPPG, 'Color', [1 0.6 0.6], 'LineWidth', 0.8);
+    end
+    h2 = plot(runInfo.time, runInfo.ppg, 'r-', 'LineWidth', 1.0);
+    ylabel('PPG Signal', 'FontSize', 12);
+    ax.YColor = 'r';
+    
+    % Plot Pressure on right y-axis
+    yyaxis right
+    h1 = plot(runInfo.time, runInfo.pressure, 'b-', 'LineWidth', 1.5);
+    ylabel('Pressure (mmHg)', 'FontSize', 12);
+    ax.YColor = 'b';
+    
+    % Plot ground truth marker if available
+    hasGroundTruth = false;
+    if runInfo.hasGroundTruth
+        hasGroundTruth = true;
+        % Plot ground truth line
+        h_gt = xline(runInfo.groundTruthTime, ':', 'Color', [0 0.5 0], 'LineWidth', 2.5);
+        plot(runInfo.groundTruthTime, runInfo.groundTruthPressure, 'p', ...
+            'Color', [0 0.5 0], 'MarkerSize', 14, 'LineWidth', 2, 'MarkerFaceColor', [0 0.8 0]);
+    end
+    
+    % Plot AUS_PULSE_HEARD markers if available
+    hasAusPulseData = false;
+    if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
+        hasAusPulseData = true;
+        fprintf('  Plotting %d stethoscope pulses\n', length(runInfo.pulseHeardIndices));
+        
+        pulseTimes = runInfo.time(runInfo.pulseHeardIndices);
+        pulsePressures = runInfo.pressure(runInfo.pulseHeardIndices);
+        pulsePPG = runInfo.ppg(runInfo.pulseHeardIndices);
+        
+        % Plot X markers on pressure (right axis)
+        h_pulse_pressure = plot(pulseTimes, pulsePressures, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
+        
+        % Switch to left axis for PPG markers
+        yyaxis left
+        plot(pulseTimes, pulsePPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
+        if runInfo.hasRawPPG
+            pulseRawPPG = runInfo.rawPPG(runInfo.pulseHeardIndices);
+            plot(pulseTimes, pulseRawPPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
+        end
+        
+        % Switch back to right axis
+        yyaxis right
+    end
+    
+    % Sort detectors by detection pressure
+    detectorPressures = zeros(length(runInfo.detectors), 1);
+    for j = 1:length(runInfo.detectors)
+        detName = runInfo.detectors{j};
+        if isKey(runInfo.detections, detName)
+            detection = runInfo.detections(detName);
+            if detection.detected
+                detectorPressures(j) = detection.pressure;
+            else
+                detectorPressures(j) = inf;
+            end
+        else
+            detectorPressures(j) = inf;
+        end
+    end
+    [~, sortIdx] = sort(detectorPressures);
+    sortedDetectors = runInfo.detectors(sortIdx);
+    
+    % Build legend
+    colors = lines(length(sortedDetectors));
+    if runInfo.hasRawPPG
+        legendHandles = [h1, h2, h3];
+        legendLabels = {'Pressure', 'PPG (Filtered)', 'PPG (Raw)'};
+    else
+        legendHandles = [h1, h2];
+        legendLabels = {'Pressure', 'PPG'};
+    end
+    
+    % Add ground truth to legend
+    if hasGroundTruth
+        legendHandles(end+1) = h_gt;
+        legendLabels{end+1} = sprintf('Ground Truth: %.1f mmHg', runInfo.groundTruthPressure);
+    end
+    
+    % Add stethoscope to legend
+    if hasAusPulseData
+        legendHandles(end+1) = h_pulse_pressure;
+        legendLabels{end+1} = sprintf('Stethoscope');
+    end
+    
+    % Plot detector lines
+    for j = 1:length(sortedDetectors)
+        detName = sortedDetectors{j};
+        if isKey(runInfo.detections, detName)
+            detection = runInfo.detections(detName);
+            detTime = detection.time;
+            detPressure = detection.pressure;
+            
+            if detection.detected && ~isnan(detTime)
+                xline(detTime, '--', 'Color', colors(j,:), 'LineWidth', 1.5);
+                h = plot(detTime, detPressure, 'o', 'Color', colors(j,:), ...
+                    'MarkerSize', 10, 'LineWidth', 2);
+                legendHandles(end+1) = h;
+                
+                % Add error to legend if ground truth available
+                if hasGroundTruth
+                    legendLabels{end+1} = sprintf('%s: %.1f mmHg (Δ=%.1f)', ...
+                        detName, detPressure, detection.error);
+                else
+                    legendLabels{end+1} = sprintf('%s: %.1f mmHg', detName, detPressure);
+                end
+            else
+                h = plot(NaN, NaN, 'o', 'Color', colors(j,:), 'MarkerSize', 10, 'LineWidth', 2);
+                legendHandles(end+1) = h;
+                legendLabels{end+1} = sprintf('%s: No detection', detName);
+            end
+        end
+    end
+    
+    xlabel('Time (s)', 'FontSize', 12);
+    titleStr = sprintf('%s', runInfo.displayName);
+    if hasGroundTruth
+        titleStr = sprintf('%s - Ground Truth: %.1f mmHg', titleStr, runInfo.groundTruthPressure);
+    end
+    title(titleStr, 'FontSize', 14, 'Interpreter', 'none');
+    
+    lgd = legend(legendHandles, legendLabels, 'Location', 'eastoutside', 'FontSize', 9);
+    lgd.NumColumns = 1;
+end
+
+function createComparisonTab(parentTab, allRuns, allDetectors)
+    numRuns = length(allRuns);
+    numDetectors = length(allDetectors);
+    
+    runLabels = cell(numRuns, 1);
+    for i = 1:numRuns
+        [~, baseName, ~] = fileparts(allRuns{i}.filename);
+        if allRuns{i}.runIdx > 0
+            runLabels{i} = sprintf('%s-R%d', baseName, allRuns{i}.runIdx);
+        else
+            runLabels{i} = baseName;
+        end
+    end
+    
+    detectionPressures = nan(numDetectors, numRuns);
+    for i = 1:numRuns
+        for j = 1:numDetectors
+            detName = allDetectors{j};
+            if isKey(allRuns{i}.detections, detName)
+                detection = allRuns{i}.detections(detName);
+                detectionPressures(j, i) = detection.pressure;
+            end
+        end
+    end
+    
+    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.165, 0.38, 0.3]);
+    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.66, 0.86, 0.3]);
+    ax4 = axes('Parent', parentTab, 'Position', [0.56, 0.165, 0.38, 0.3]);
+    
+    % Heatmap
+    axes(ax2);
+    imagesc(detectionPressures);
+    cmap2 = createBPColormap();
+    colormap(ax2, cmap2);
+    clim([60, 160]);
+    colorbar;
+    title('Detected Systolic Pressure (mmHg)', 'FontSize', 14);
+    xlabel('Run', 'FontSize', 12);
+    ylabel('Detector', 'FontSize', 12);
+    set(gca, 'YTick', 1:numDetectors, 'YTickLabel', allDetectors, 'FontSize', 8);
+    shortLabels = cellfun(@(s) shortenLabel(s), runLabels, 'UniformOutput', false);
+    set(gca, 'XTick', 1:numRuns, 'XTickLabel', shortLabels, 'XTickLabelRotation', 45, 'FontSize', 8);
+    
+    for i = 1:numDetectors
+        for j = 1:numRuns
+            if ~isnan(detectionPressures(i, j))
+                pressure = detectionPressures(i, j);
+                textColor = getTextColorForPressure(pressure);
+                text(j, i, sprintf('%.1f', pressure), ...
+                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
+                    'Color', textColor, 'FontWeight', 'bold');
+            end
+        end
+    end
+    
+    % Mean and Std
+    axes(ax3);
+    meanPressures = mean(detectionPressures, 2, 'omitnan');
+    stdPressures = std(detectionPressures, 0, 2, 'omitnan');
+    errorbar(1:numDetectors, meanPressures, stdPressures, 'o-', 'LineWidth', 1.5);
+    grid on;
+    title('Mean Detected Pressure ± Std Dev', 'FontSize', 14);
+    xlabel('Detector', 'FontSize', 12);
+    ylabel('Pressure (mmHg)', 'FontSize', 12);
+    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', allDetectors, 'XTickLabelRotation', 45);
+    
+    % Success Rate
+    axes(ax4);
+    successRate = sum(~isnan(detectionPressures), 2) / numRuns * 100;
+    bar(successRate);
+    grid on;
+    title('Detection Success Rate', 'FontSize', 14);
+    xlabel('Detector', 'FontSize', 12);
+    ylabel('Success Rate (%)', 'FontSize', 12);
+    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', allDetectors, 'XTickLabelRotation', 45);
+    ylim([0 110]);
+end
+
+function createGroundTruthTab(parentTab, allRuns, allDetectors)
+    % Filter to runs with ground truth
+    runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
+    numRuns = length(runsWithGT);
+    numDetectors = length(allDetectors);
+    
+    if numRuns == 0
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No runs with ground truth data found.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    % Extract errors
+    errors = nan(numDetectors, numRuns);
+    absErrors = nan(numDetectors, numRuns);
+    
+    for i = 1:numRuns
+        for j = 1:numDetectors
+            detName = allDetectors{j};
+            if isKey(runsWithGT{i}.detections, detName)
+                detection = runsWithGT{i}.detections(detName);
+                if detection.detected
+                    errors(j, i) = detection.error;
+                    absErrors(j, i) = detection.absError;
+                end
+            end
+        end
+    end
+    
+    % Calculate statistics
+    meanError = mean(errors, 2, 'omitnan');
+    stdError = std(errors, 0, 2, 'omitnan');
+    meanAbsError = mean(absErrors, 2, 'omitnan');
+    stdAbsError = std(absErrors, 0, 2, 'omitnan');
+    
+    % Create axes
+    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.55, 0.40, 0.38]);
+    ax2 = axes('Parent', parentTab, 'Position', [0.56, 0.55, 0.40, 0.38]);
+    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.08, 0.40, 0.38]);
+    ax4 = axes('Parent', parentTab, 'Position', [0.56, 0.08, 0.40, 0.38]);
+    
+    % Plot 1: Error with std dev
+    axes(ax1);
+    errorbar(1:numDetectors, meanError, stdError, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    hold on;
+    yline(0, 'k--', 'LineWidth', 1.5);
+    grid on;
+    xlabel('Detector', 'FontSize', 12);
+    ylabel('Mean Error (mmHg)', 'FontSize', 12);
+    title('Mean Error from Ground Truth ± Std Dev', 'FontSize', 14);
+    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', allDetectors, 'XTickLabelRotation', 45);
+    
+    % Plot 2: Absolute error
+    axes(ax2);
+    errorbar(1:numDetectors, meanAbsError, stdAbsError, 'o-', 'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
+    grid on;
+    xlabel('Detector', 'FontSize', 12);
+    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+    title('Mean Absolute Error from Ground Truth ± Std Dev', 'FontSize', 14);
+    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', allDetectors, 'XTickLabelRotation', 45);
+    
+    % Plot 3: Error heatmap
+    axes(ax3);
+    imagesc(errors);
+    colormap(ax3, redblue(256));
+    maxErr = max(abs(errors(:)), [], 'omitnan');
+    if ~isnan(maxErr) && maxErr > 0
+        clim([-maxErr, maxErr]);
+    end
+    colorbar;
+    title('Error from Ground Truth (mmHg)', 'FontSize', 14);
+    xlabel('Run', 'FontSize', 12);
+    ylabel('Detector', 'FontSize', 12);
+    set(gca, 'YTick', 1:numDetectors, 'YTickLabel', allDetectors, 'FontSize', 8);
+    set(gca, 'XTick', 1:numRuns, 'XTickLabelRotation', 45, 'FontSize', 8);
+    
+    % Add text annotations
+    for i = 1:numDetectors
+        for j = 1:numRuns
+            if ~isnan(errors(i, j))
+                text(j, i, sprintf('%.1f', errors(i, j)), ...
+                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
+                    'Color', 'black', 'FontWeight', 'bold');
+            end
+        end
+    end
+    
+    % Plot 4: Ranking by absolute error
+    axes(ax4);
+    [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
+    sortedDetectors = allDetectors(sortIdx);
+    bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
+    grid on;
+    xlabel('Detector (Ranked)', 'FontSize', 12);
+    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+    title('Detector Ranking by Accuracy', 'FontSize', 14);
+    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', sortedDetectors, 'XTickLabelRotation', 45);
+    
+    % Print summary
+    fprintf('\n=== GROUND TRUTH ANALYSIS SUMMARY ===\n');
+    fprintf('Analyzed %d runs with ground truth data\n\n', numRuns);
+    fprintf('Detector Rankings by Mean Absolute Error:\n');
+    for i = 1:min(numDetectors, 10)
+        idx = sortIdx(i);
+        fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
+            i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
+    end
+    fprintf('\n');
+end
+
+function cmap = redblue(n)
+    % Create red-white-blue colormap
+    if nargin < 1
+        n = 256;
+    end
+    
+    half = ceil(n/2);
+    r = [(0:half-1)'/half; ones(n-half,1)];
+    g = [(0:half-1)'/half; (half-1:-1:0)'/(half-1)];
+    b = [ones(half,1); (n-half-1:-1:0)'/(n-half)];
+    
+    cmap = [r g b];
+end
+
+function out = shortenLabel(s)
+    if strlength(s) > 12
+        out = ['...' extractAfter(s, strlength(s)-12)];
+    else
+        out = s;
+    end
+end
+
+function cmap = createBPColormap()
+    lowColors = [0.0 0.0 0.8; 0.3 0.5 1.0];
+    goodColors = [0.4 0.8 0.4; 0.6 0.9 0.3; 0.9 0.9 0.2];
+    highColors = [1.0 0.5 0.0; 1.0 0.0 0.0];
+    
+    nLow = 20; nGood = 60; nHigh = 20;
+    cmapLow = interp1(linspace(0, 1, size(lowColors, 1)), lowColors, linspace(0, 1, nLow));
+    cmapGood = interp1(linspace(0, 1, size(goodColors, 1)), goodColors, linspace(0, 1, nGood));
+    cmapHigh = interp1(linspace(0, 1, size(highColors, 1)), highColors, linspace(0, 1, nHigh));
+    cmap = [cmapLow; cmapGood; cmapHigh];
+end
+
+function textColor = getTextColorForPressure(pressure)
+    if pressure >= 80 && pressure <= 140
+        textColor = 'black';
+    elseif pressure < 75
+        textColor = 'white';
+    elseif pressure > 145
+        textColor = 'white';
+    else
+        textColor = 'black';
+    end
+end
+
+function createBLAnalysisTab(parentTab, allRuns, allDetectors)
+    blDetectors = allDetectors(startsWith(allDetectors, 'BL_'));
+    if isempty(blDetectors)
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No BL detectors found in the data.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    numBL = length(blDetectors);
+    params = zeros(numBL, 3);
+    for i = 1:numBL
+        tokens = regexp(blDetectors{i}, 'BL_W(\d+)_T([\d.]+)_D(\d+)', 'tokens');
+        if ~isempty(tokens)
+            params(i, :) = [str2double(tokens{1}{1}), str2double(tokens{1}{2}), str2double(tokens{1}{3})];
+        end
+    end
+    
+    numRuns = length(allRuns);
+    detPressures = nan(numBL, numRuns);
+    for i = 1:numRuns
+        for j = 1:numBL
+            detName = blDetectors{j};
+            if isKey(allRuns{i}.detections, detName)
+                detection = allRuns{i}.detections(detName);
+                detPressures(j, i) = detection.pressure;
+            end
+        end
+    end
+    
+    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.55, 0.38, 0.38]);
+    ax2 = axes('Parent', parentTab, 'Position', [0.56, 0.55, 0.38, 0.38]);
+    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.08, 0.38, 0.38]);
+    
+    axes(ax1);
+    uniqueW = unique(params(:, 1));
+    meanByW = zeros(length(uniqueW), 1);
+    stdByW = zeros(length(uniqueW), 1);
+    for i = 1:length(uniqueW)
+        idx = params(:, 1) == uniqueW(i);
+        meanByW(i) = mean(detPressures(idx, :), 'all', 'omitnan');
+        stdByW(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
+    end
+    errorbar(uniqueW, meanByW, stdByW, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on; xlabel('Window Size (W)', 'FontSize', 12);
+    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
+    title('Effect of Window Size', 'FontSize', 14);
+    
+    axes(ax2);
+    uniqueT = unique(params(:, 2));
+    meanByT = zeros(length(uniqueT), 1);
+    stdByT = zeros(length(uniqueT), 1);
+    for i = 1:length(uniqueT)
+        idx = params(:, 2) == uniqueT(i);
+        meanByT(i) = mean(detPressures(idx, :), 'all', 'omitnan');
+        stdByT(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
+    end
+    errorbar(uniqueT, meanByT, stdByT, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on; xlabel('Threshold Multiplier (T)', 'FontSize', 12);
+    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
+    title('Effect of Threshold', 'FontSize', 14);
+    
+    axes(ax3);
+    uniqueD = unique(params(:, 3));
+    meanByD = zeros(length(uniqueD), 1);
+    stdByD = zeros(length(uniqueD), 1);
+    for i = 1:length(uniqueD)
+        idx = params(:, 3) == uniqueD(i);
+        meanByD(i) = mean(detPressures(idx, :), 'all', 'omitnan');
+        stdByD(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
+    end
+    errorbar(uniqueD, meanByD, stdByD, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on; xlabel('Minimum Deviation (D)', 'FontSize', 12);
+    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
+    title('Effect of Minimum Deviation', 'FontSize', 14);
+end
+
+function createDRVAnalysisTab(parentTab, allRuns, allDetectors)
+    drvDetectors = allDetectors(startsWith(allDetectors, 'DRV_'));
+    if isempty(drvDetectors)
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No DRV detectors found in the data.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    numDRV = length(drvDetectors);
+    params = zeros(numDRV, 2);
+    for i = 1:numDRV
+        tokens = regexp(drvDetectors{i}, 'DRV_W(\d+)_T([\d.]+)', 'tokens');
+        if ~isempty(tokens)
+            params(i, :) = [str2double(tokens{1}{1}), str2double(tokens{1}{2})];
+        end
+    end
+    
+    numRuns = length(allRuns);
+    detPressures = nan(numDRV, numRuns);
+    for i = 1:numRuns
+        for j = 1:numDRV
+            detName = drvDetectors{j};
+            if isKey(allRuns{i}.detections, detName)
+                detection = allRuns{i}.detections(detName);
+                detPressures(j, i) = detection.pressure;
+            end
+        end
+    end
+    
+    ax1 = axes('Parent', parentTab, 'Position', [0.1, 0.3, 0.35, 0.5]);
+    ax2 = axes('Parent', parentTab, 'Position', [0.55, 0.3, 0.35, 0.5]);
+    
+    axes(ax1);
+    uniqueW = unique(params(:, 1));
+    meanByW = zeros(length(uniqueW), 1);
+    stdByW = zeros(length(uniqueW), 1);
+    for i = 1:length(uniqueW)
+        idx = params(:, 1) == uniqueW(i);
+        meanByW(i) = mean(detPressures(idx, :), 'all', 'omitnan');
+        stdByW(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
+    end
+    errorbar(uniqueW, meanByW, stdByW, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on; xlabel('Window Size (W)', 'FontSize', 12);
+    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
+    title('Effect of Window Size', 'FontSize', 14);
+    
+    axes(ax2);
+    uniqueT = unique(params(:, 2));
+    meanByT = zeros(length(uniqueT), 1);
+    stdByT = zeros(length(uniqueT), 1);
+    for i = 1:length(uniqueT)
+        idx = params(:, 2) == uniqueT(i);
+        meanByT(i) = mean(detPressures(idx, :), 'all', 'omitnan');
+        stdByT(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
+    end
+    errorbar(uniqueT, meanByT, stdByT, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on; xlabel('Threshold (T)', 'FontSize', 12);
+    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
+    title('Effect of Threshold', 'FontSize', 14);
+end

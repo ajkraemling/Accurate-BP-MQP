@@ -1,13 +1,18 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <vector>
 #include <string>
+#include <vector>
 #include <iomanip>
+#include <algorithm>
 #include <ctime>
+#include <cmath>
 
 #ifdef _WIN32
-    #include <windows.h>
+#include <windows.h>
+#else
+#include <sys/stat.h>
+#include <dirent.h>
 #endif
 
 // Mock Arduino String class for compatibility
@@ -18,10 +23,8 @@ public:
     String(const char* s = "") : str(s) {}
     String(int val) : str(std::to_string(val)) {}
     String(float val) : str(std::to_string(val)) {}
-    
     const char* c_str() const { return str.c_str(); }
     size_t length() const { return str.length(); }
-    
     String operator+(const String& other) const {
         String result;
         result.str = str + other.str;
@@ -29,8 +32,9 @@ public:
     }
 };
 
-// Include only headers from src/ directory
-#include "PulseDetector.h"
+// Include headers
+#include "SystolicDetector.h"
+#include "MAPDetector.h"
 #include "BPMonitor.h"
 #include "filters.h"
 
@@ -41,9 +45,32 @@ struct CSVRow {
     int ppgSignal;
     int rawPPGSignal;
     bool hasRawPPG;
+    int ausPulseHeard;
 };
 
-// Simple helper to get base filename
+// CSV Data structure with column tracking
+struct CSVData {
+    std::vector<std::string> headers;
+    std::vector<CSVRow> rows;
+    bool hasRawPPG;
+    bool hasAusPulseHeard;
+    int timeColIdx;
+    int pressureColIdx;
+    int ppgColIdx;
+    int rawPPGColIdx;
+    int ausPulseHeardIdx;
+};
+
+// Run data structure - stores data for one complete run
+struct RunData {
+    int runNumber;
+    std::vector<CSVRow> rows;
+    unsigned long startTime;
+    unsigned long endTime;
+    std::vector<std::pair<CSVRow, int>> detectorOutputs;  // Store row and ppgSignal for each sample
+};
+
+// Helper functions for path manipulation
 std::string getBasename(const std::string& path) {
     size_t lastSlash = path.find_last_of("/\\");
     std::string filename = (lastSlash != std::string::npos) ? path.substr(lastSlash + 1) : path;
@@ -54,7 +81,33 @@ std::string getBasename(const std::string& path) {
     return filename;
 }
 
-// Get timestamp for filename
+std::string getFilename(const std::string& path) {
+    size_t pos = path.find_last_of("/\\");
+    if (pos == std::string::npos) return path;
+    return path.substr(pos + 1);
+}
+
+std::string getDirectory(const std::string& path) {
+    size_t pos = path.find_last_of("/\\");
+    if (pos == std::string::npos) return ".";
+    return path.substr(0, pos);
+}
+
+std::string joinPath(const std::string& dir, const std::string& file) {
+    if (dir.empty()) return file;
+    if (dir.back() == '/' || dir.back() == '\\') return dir + file;
+#ifdef _WIN32
+    return dir + "\\" + file;
+#else
+    return dir + "/" + file;
+#endif
+}
+
+bool endsWith(const std::string& str, const std::string& suffix) {
+    if (str.length() < suffix.length()) return false;
+    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+}
+
 std::string getTimestamp() {
     time_t now = time(0);
     struct tm tstruct;
@@ -68,205 +121,436 @@ std::string getTimestamp() {
     return std::string(buf);
 }
 
-// Parse CSV file header to check for rawPPGSignal
-bool hasRawPPGColumn(const std::string& headerLine) {
-    return (headerLine.find("rawPPGSignal") != std::string::npos || 
-            headerLine.find("RawPPGSignal") != std::string::npos);
+std::string trim(const std::string& str) {
+    size_t first = str.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    size_t last = str.find_last_not_of(" \t\r\n");
+    return str.substr(first, (last - first + 1));
 }
 
-// Parse CSV file
-std::vector<CSVRow> loadCSV(const std::string& filename, bool& hasRaw) {
-    std::vector<CSVRow> data;
+std::vector<std::string> parseCSVLine(const std::string& line) {
+    std::vector<std::string> result;
+    std::stringstream ss(line);
+    std::string cell;
+    while (std::getline(ss, cell, ',')) {
+        result.push_back(trim(cell));
+    }
+    return result;
+}
+
+int findColumnIndex(const std::vector<std::string>& headers, const std::vector<std::string>& possibleNames) {
+    for (const auto& name : possibleNames) {
+        for (size_t i = 0; i < headers.size(); i++) {
+            if (headers[i] == name) {
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+CSVData loadCSV(const std::string& filename) {
+    CSVData data;
+    data.hasRawPPG = false;
+    data.hasAusPulseHeard = false;
+    data.timeColIdx = -1;
+    data.pressureColIdx = -1;
+    data.ppgColIdx = -1;
+    data.rawPPGColIdx = -1;
+    data.ausPulseHeardIdx = -1;
+
     std::ifstream file(filename);
     std::string line;
-    
+
     if (!file.is_open()) {
         std::cerr << "Error: Could not open file " << filename << std::endl;
         return data;
     }
-    
-    // Check header for rawPPGSignal
-    std::getline(file, line);
-    hasRaw = hasRawPPGColumn(line);
-    
+
+    if (!std::getline(file, line)) {
+        std::cerr << "Error: Empty file" << std::endl;
+        return data;
+    }
+
+    data.headers = parseCSVLine(line);
+
+    data.timeColIdx = findColumnIndex(data.headers, {"Time", "Timestamp"});
+    data.pressureColIdx = findColumnIndex(data.headers, {"Pressure"});
+    data.ppgColIdx = findColumnIndex(data.headers, {"PPGSignal"});
+    data.rawPPGColIdx = findColumnIndex(data.headers, {"rawPPGSignal", "PPG"});
+    data.ausPulseHeardIdx = findColumnIndex(data.headers, {"AUS_PULSE_HEARD"});
+
+    if (data.timeColIdx == -1 || data.pressureColIdx == -1) {
+        std::cerr << "Error: Required columns not found!" << std::endl;
+        return data;
+    }
+
+    data.hasRawPPG = (data.rawPPGColIdx != -1);
+    data.hasAusPulseHeard = (data.ausPulseHeardIdx != -1);
+
     while (std::getline(file, line)) {
-        // Skip comment lines and empty lines
         if (line.empty() || line[0] == '#') continue;
-        
-        std::stringstream ss(line);
-        std::string token;
-        CSVRow row;
-        row.hasRawPPG = hasRaw;
-        
-        // Parse: Time,Pressure,PPGSignal,rawPPGSignal,...
+        std::vector<std::string> cells = parseCSVLine(line);
+        if (cells.size() < data.headers.size()) continue;
+
         try {
-            std::getline(ss, token, ',');
-            row.time = std::stoul(token);
-            
-            std::getline(ss, token, ',');
-            row.pressure = std::stof(token);
-            
-            std::getline(ss, token, ',');
-            row.ppgSignal = std::stoi(token);
-            
-            if (hasRaw) {
-                std::getline(ss, token, ',');
-                row.rawPPGSignal = std::stoi(token);
-            } else {
-                row.rawPPGSignal = 0;
-            }
-            
-            // Ignore remaining columns
-            data.push_back(row);
+            CSVRow row;
+            row.time = std::stoul(cells[data.timeColIdx]);
+            row.pressure = std::stof(cells[data.pressureColIdx]);
+            row.ppgSignal = (data.ppgColIdx != -1) ? std::stoi(cells[data.ppgColIdx]) : 0;
+            row.rawPPGSignal = data.hasRawPPG ? std::stoi(cells[data.rawPPGColIdx]) : 0;
+            row.ausPulseHeard = data.hasAusPulseHeard ? std::stoi(cells[data.ausPulseHeardIdx]) : 0;
+            row.hasRawPPG = data.hasRawPPG;
+            data.rows.push_back(row);
         } catch (...) {
-            // Skip malformed rows
             continue;
         }
     }
-    
+
     return data;
 }
 
-// Get list of CSV files in directory (Windows only for now)
-std::vector<std::string> getCSVFiles(const std::string& path) {
-    std::vector<std::string> files;
-    
-#ifdef _WIN32
-    WIN32_FIND_DATAA findData;
-    std::string searchPath = path + "\\*.csv";
-    
-    HANDLE hFind = FindFirstFileA(searchPath.c_str(), &findData);
-    if (hFind != INVALID_HANDLE_VALUE) {
-        do {
-            if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-                files.push_back(path + "\\" + findData.cFileName);
-            }
-        } while (FindNextFileA(hFind, &findData));
-        FindClose(hFind);
-    }
-#else
-    // On Linux/Mac, just process single file
-    files.push_back(path);
-#endif
-    
-    return files;
-}
-
-// Check if path is a directory
 bool isDirectory(const std::string& path) {
 #ifdef _WIN32
     DWORD attrib = GetFileAttributesA(path.c_str());
     return (attrib != INVALID_FILE_ATTRIBUTES && (attrib & FILE_ATTRIBUTE_DIRECTORY));
 #else
-    return false;  // For simplicity on non-Windows
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0) {
+        return S_ISDIR(st.st_mode);
+    }
+    return false;
 #endif
 }
 
-// Print results table
-void printResults(BPMonitor& monitor, const std::string& filename) {
-    std::cout << "\n========== " << filename << " ==========\n";
-    std::cout << std::left << std::setw(30) << "Detector" 
-              << std::setw(15) << "Systolic (mmHg)" << std::endl;
-    std::cout << std::string(45, '-') << std::endl;
-    
-    for (int i = 0; i < monitor.getDetectorCount(); i++) {
-        PulseDetector* detector = monitor.getDetector(i);
-        std::cout << std::left << std::setw(30) << detector->getName()
-                  << std::setw(15) << detector->getSystolic() << std::endl;
+void createDirectory(const std::string& path) {
+#ifdef _WIN32
+    CreateDirectoryA(path.c_str(), NULL);
+#else
+    mkdir(path.c_str(), 0755);
+#endif
+}
+
+void createDirectories(const std::string& path) {
+    std::string current;
+    for (size_t i = 0; i < path.length(); i++) {
+        if (path[i] == '/' || path[i] == '\\') {
+            if (!current.empty() && current != ".") {
+                createDirectory(current);
+            }
+        }
+        current += path[i];
+    }
+    if (!current.empty()) {
+        createDirectory(current);
     }
 }
 
-// Output detailed CSV with all detector results
-void outputDetailedCSV(const std::vector<CSVRow>& data,
-                       BPMonitor& monitor,
-                       const std::string& outputFile,
-                       bool hasRawPPG) {
+std::string getRelativePath(const std::string& fullPath, const std::string& basePath) {
+    if (fullPath.find(basePath) == 0) {
+        size_t start = basePath.length();
+        while (start < fullPath.length() && (fullPath[start] == '/' || fullPath[start] == '\\')) {
+            start++;
+        }
+        return fullPath.substr(start);
+    }
+    return getFilename(fullPath);
+}
+
+void findCSVFilesRecursive(const std::string& directory, std::vector<std::string>& csvFiles) {
+#ifdef _WIN32
+    WIN32_FIND_DATAA findData;
+    HANDLE hFind = FindFirstFileA((directory + "\\*").c_str(), &findData);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+
+    do {
+        std::string filename = findData.cFileName;
+        if (filename == "." || filename == "..") continue;
+        std::string fullPath = joinPath(directory, filename);
+
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            findCSVFilesRecursive(fullPath, csvFiles);
+        } else if (endsWith(filename, ".csv")) {
+            csvFiles.push_back(fullPath);
+        }
+    } while (FindNextFileA(hFind, &findData));
+    FindClose(hFind);
+#else
+    DIR* dir = opendir(directory.c_str());
+    if (!dir) return;
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string filename = entry->d_name;
+        if (filename == "." || filename == "..") continue;
+        std::string fullPath = joinPath(directory, filename);
+
+        if (isDirectory(fullPath)) {
+            findCSVFilesRecursive(fullPath, csvFiles);
+        } else if (endsWith(filename, ".csv")) {
+            csvFiles.push_back(fullPath);
+        }
+    }
+    closedir(dir);
+#endif
+}
+
+std::vector<std::string> findAllCSVFiles(const std::string& directory) {
+    std::vector<std::string> csvFiles;
+    findCSVFilesRecursive(directory, csvFiles);
+    std::sort(csvFiles.begin(), csvFiles.end());
+    return csvFiles;
+}
+
+// Split data into runs based on state machine transitions to COMPLETE
+std::vector<RunData> splitIntoRuns(const CSVData& data, BPMonitor& monitor) {
+    std::vector<RunData> runs;
+    RunData currentRun;
+    currentRun.runNumber = 1;
+    currentRun.startTime = 0;
+    
+    BPState lastState = IDLE;
+    bool inRun = false;
+    
+    // Create filter for processing
+    PPGBandpassFilter filter(50.0f);
+    monitor.setFilter(&filter);
+    monitor.reset();
+    
+    for (const auto& row : data.rows) {
+        BPMeasurement measurement;
+        measurement.pressure = row.pressure;
+        measurement.timestamp = row.time;
+        
+        if (data.hasRawPPG) {
+            float filtered = filter.filter((float)row.rawPPGSignal);
+            measurement.ppgSignal = (int)filtered;
+            measurement.rawPPGSignal = row.rawPPGSignal;
+        } else {
+            measurement.ppgSignal = row.ppgSignal;
+            measurement.rawPPGSignal = 0;
+        }
+        
+        monitor.update(measurement);
+        BPState currentState = monitor.getState();
+        
+        // Detect start of run (transition from IDLE to INFLATING)
+        if (lastState == IDLE && currentState == INFLATING) {
+            inRun = true;
+            currentRun.startTime = row.time;
+            currentRun.rows.clear();
+        }
+        
+        // Add row to current run if we're in one
+        if (inRun) {
+            currentRun.rows.push_back(row);
+        }
+        
+        // Detect end of run (transition to COMPLETE)
+        if (inRun && currentState == COMPLETE && lastState != COMPLETE) {
+            currentRun.endTime = row.time;
+            runs.push_back(currentRun);
+            
+            // Prepare for next run
+            currentRun.runNumber++;
+            currentRun.rows.clear();
+            inRun = false;
+            monitor.reset();
+        }
+        
+        lastState = currentState;
+    }
+    
+    // If we're still in a run at the end, save it
+    if (inRun && !currentRun.rows.empty()) {
+        currentRun.endTime = data.rows.back().time;
+        runs.push_back(currentRun);
+    }
+    
+    return runs;
+}
+
+// Print detailed results for one run
+void printRunResults(BPMonitor& monitor, const std::string& filename, int runNumber) {
+    std::cout << "\n========== " << filename << " - Run #" << runNumber << " ==========\n";
+
+    float baselineBPM = monitor.getBaselineBPM();
+    if (baselineBPM > 0) {
+        HeartRateRange hr = monitor.getBaselineHeartRate();
+        std::cout << "Baseline HR: " << std::fixed << std::setprecision(1) << baselineBPM << " BPM\n";
+        std::cout << "Valid interval: " << hr.minInterval << "-" << hr.maxInterval << " ms\n";
+    } else {
+        std::cout << "No baseline HR detected\n";
+    }
+
+    BPResult ensembleResult = monitor.getEnsembleResult();
+    std::cout << "\n*** ENSEMBLE RESULT ***\n";
+    std::cout << "Systolic: " << std::fixed << std::setprecision(0) << ensembleResult.systolic << " mmHg\n";
+    std::cout << "Confidence: " << std::setprecision(3) << ensembleResult.confidence << "\n";
+    std::cout << "95% CI: [" << std::setprecision(0) << ensembleResult.confidenceIntervalLow 
+              << " - " << ensembleResult.confidenceIntervalHigh << "] mmHg\n";
+    std::cout << "Agreement: " << ensembleResult.agreementCount << "/" 
+              << ensembleResult.totalDetectors << " detectors\n";
+
+    if (monitor.hasValidMAPData()) {
+        float map = monitor.getMAP();
+        std::cout << "MAP: " << map << " mmHg\n";
+        if (ensembleResult.systolic > 0 && map > 0) {
+            float diastolic = map - (ensembleResult.systolic - map) / 3.0f;
+            std::cout << "Est. Diastolic: " << diastolic << " mmHg\n";
+        }
+    }
+}
+
+// Output CSV for one run
+void outputRunCSV(const CSVData& originalData, BPMonitor& monitor, 
+                  const std::string& outputFile, const std::vector<std::pair<CSVRow, int>>& detectorOutputs) {
     std::ofstream out(outputFile);
     
     // Header
-    out << "Time,Pressure,PPGSignal";
-    if (hasRawPPG) {
-        out << ",rawPPGSignal";
+    for (size_t i = 0; i < originalData.headers.size(); i++) {
+        out << originalData.headers[i];
+        if (i < originalData.headers.size() - 1) out << ",";
     }
     for (int i = 0; i < monitor.getDetectorCount(); i++) {
         out << "," << monitor.getDetector(i)->getName();
     }
     out << "\n";
     
-    // Reset monitor and all detectors
-    monitor.reset();
-    
-    // Create filter if using raw PPG
-    PPGBandpassFilter filter;
-    
-    // Process each row
-    for (const auto& row : data) {
-        BPMeasurement measurement;
-        measurement.pressure = row.pressure;
-        measurement.timestamp = row.time;
+    // Output rows with detector results
+    for (const auto& entry : detectorOutputs) {
+        const CSVRow& row = entry.first;
+        int ppgSignal = entry.second;
         
-        // Use raw PPG if available (filter it), otherwise use PPGSignal as-is
-        if (hasRawPPG) {
-            float filtered = filter.filter((float)row.rawPPGSignal);
-            measurement.ppgSignal = (int)filtered;
-            measurement.rawPPGSignal = row.rawPPGSignal;
-        } else {
-            measurement.ppgSignal = row.ppgSignal;
-            measurement.rawPPGSignal = 0;
-        }
+        // Output original columns
+        out << row.time << "," << std::fixed << std::setprecision(2) << row.pressure 
+            << "," << ppgSignal;
         
-        // Update monitor (runs all detectors)
-        monitor.update(measurement);
-        
-        // Output row
-        out << row.time << ","
-            << std::fixed << std::setprecision(2) << row.pressure << ","
-            << measurement.ppgSignal;
-        
-        if (hasRawPPG) {
+        if (originalData.hasRawPPG) {
             out << "," << row.rawPPGSignal;
         }
+        if (originalData.hasAusPulseHeard) {
+            out << "," << row.ausPulseHeard;
+        }
         
-        // Output detector results
+        // Output detector results - these are captured at the time of processing
         for (int i = 0; i < monitor.getDetectorCount(); i++) {
-            out << "," << monitor.getDetector(i)->getSystolic();
+            DetectionRecord best = monitor.getDetector(i)->getBestDetection();
+            out << "," << std::fixed << std::setprecision(0) << best.pressure;
         }
         out << "\n";
     }
-    
-    std::cout << "Results written to: " << outputFile << std::endl;
 }
 
-// Process a single file
-void processFile(const std::string& inputFile, const std::string& outputDir, BPMonitor& monitor) {
+// Output summary report for one run
+void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runNumber) {
+    std::ofstream out(outputFile);
+    
+    out << "=== Blood Pressure Measurement Report - Run #" << runNumber << " ===\n\n";
+    
+    float baselineBPM = monitor.getBaselineBPM();
+    if (baselineBPM > 0) {
+        HeartRateRange hr = monitor.getBaselineHeartRate();
+        out << "Baseline HR: " << std::fixed << std::setprecision(1) << baselineBPM << " BPM\n";
+        out << "Valid interval: " << hr.minInterval << "-" << hr.maxInterval << " ms\n\n";
+    } else {
+        out << "No baseline HR detected\n\n";
+    }
+    
+    BPResult ensembleResult = monitor.getEnsembleResult();
+    out << "*** ENSEMBLE RESULT ***\n";
+    out << "Systolic: " << std::fixed << std::setprecision(0) << ensembleResult.systolic << " mmHg\n";
+    out << "Confidence: " << std::setprecision(3) << ensembleResult.confidence << "\n";
+    out << "95% CI: [" << std::setprecision(0) << ensembleResult.confidenceIntervalLow 
+        << " - " << ensembleResult.confidenceIntervalHigh << "] mmHg\n";
+    out << "Agreement: " << ensembleResult.agreementCount << "/" 
+        << ensembleResult.totalDetectors << " detectors\n\n";
+    
+    if (monitor.hasValidMAPData()) {
+        float map = monitor.getMAP();
+        out << "MAP: " << map << " mmHg\n";
+        if (ensembleResult.systolic > 0 && map > 0) {
+            float diastolic = map - (ensembleResult.systolic - map) / 3.0f;
+            out << "Est. Diastolic: " << diastolic << " mmHg\n";
+        }
+    }
+    
+    out << "\n--- Top Detectors ---\n\n";
+    out << std::left << std::setw(35) << "Detector" << std::setw(12) << "Best (mmHg)" 
+        << std::setw(12) << "Confidence" << "\n";
+    out << std::string(60, '-') << "\n";
+    
+    struct DetectorResult {
+        std::string name;
+        DetectionRecord best;
+    };
+    
+    std::vector<DetectorResult> results;
+    for (int i = 0; i < monitor.getDetectorCount(); i++) {
+        DetectorResult result;
+        result.name = monitor.getDetector(i)->getName();
+        result.best = monitor.getDetector(i)->getBestDetection();
+        results.push_back(result);
+    }
+    
+    std::sort(results.begin(), results.end(), 
+              [](const DetectorResult& a, const DetectorResult& b) {
+                  return a.best.confidence > b.best.confidence;
+              });
+    
+    int count = 0;
+    for (const auto& result : results) {
+        if (count >= 10) break;
+        if (result.best.confidence > 0) {
+            out << std::left << std::setw(35) << result.name 
+                << std::setw(12) << std::fixed << std::setprecision(0) << result.best.pressure 
+                << std::setprecision(3) << result.best.confidence << "\n";
+            count++;
+        }
+    }
+}
+
+// Process one file with multiple runs
+void processFile(const std::string& inputFile, const std::string& outputDir, 
+                const std::string& inputBaseDir, BPMonitor& monitor) {
     std::cout << "\n========================================\n";
     std::cout << "Processing: " << inputFile << "\n";
     
-    bool hasRawPPG = false;
-    std::vector<CSVRow> data = loadCSV(inputFile, hasRawPPG);
-    
-    if (data.empty()) {
+    CSVData data = loadCSV(inputFile);
+    if (data.rows.empty()) {
         std::cerr << "Error: No data loaded\n";
         return;
     }
     
-    std::cout << "Loaded " << data.size() << " rows\n";
-    if (hasRawPPG) {
-        std::cout << "Note: Using rawPPGSignal (will filter fresh)\n";
-    } else {
-        std::cout << "Note: Using PPGSignal as-is (no rawPPGSignal found)\n";
+    std::cout << "Loaded " << data.rows.size() << " rows\n";
+    
+    // Setup output directory
+    std::string relativePath = getRelativePath(inputFile, inputBaseDir);
+    std::string relativeDir = getDirectory(relativePath);
+    std::string baseName = getBasename(inputFile);
+    
+    std::string fileOutputDir = outputDir;
+    if (!relativeDir.empty() && relativeDir != ".") {
+        fileOutputDir = joinPath(outputDir, relativeDir);
+        createDirectories(fileOutputDir);
     }
     
-    // Run detectors
+    // Create filter
+    PPGBandpassFilter filter(50.0f);
+    monitor.setFilter(&filter);
     monitor.reset();
-    PPGBandpassFilter filter;
     
-    for (const auto& row : data) {
+    int runNumber = 1;
+    BPState lastState = IDLE;
+    std::vector<std::pair<CSVRow, int>> currentRunOutput;  // Store rows and ppg for CSV output
+    
+    // Process all rows, detecting and handling run completions
+    for (const auto& row : data.rows) {
         BPMeasurement measurement;
         measurement.pressure = row.pressure;
         measurement.timestamp = row.time;
         
-        if (hasRawPPG) {
+        if (data.hasRawPPG) {
             float filtered = filter.filter((float)row.rawPPGSignal);
             measurement.ppgSignal = (int)filtered;
             measurement.rawPPGSignal = row.rawPPGSignal;
@@ -276,144 +560,113 @@ void processFile(const std::string& inputFile, const std::string& outputDir, BPM
         }
         
         monitor.update(measurement);
+        BPState currentState = monitor.getState();
+        
+        // Store row and processed PPG signal for current run
+        currentRunOutput.push_back({row, measurement.ppgSignal});
+        
+        // Check if we just transitioned to COMPLETE
+        if (currentState == COMPLETE && lastState != COMPLETE) {
+            // Print results for this run
+            printRunResults(monitor, getFilename(inputFile), runNumber);
+            
+            // Generate output files for this run
+            std::string runSuffix = "_run" + std::to_string(runNumber);
+            std::string csvOutput = joinPath(fileOutputDir, baseName + runSuffix + "_results.csv");
+            std::string reportOutput = joinPath(fileOutputDir, baseName + runSuffix + "_report.txt");
+            
+            outputRunCSV(data, monitor, csvOutput, currentRunOutput);
+            outputRunReport(monitor, reportOutput, runNumber);
+            
+            std::cout << "  Run #" << runNumber << " outputs:\n";
+            std::cout << "    CSV: " << csvOutput << "\n";
+            std::cout << "    Report: " << reportOutput << "\n";
+            
+            // Reset for next run
+            runNumber++;
+            monitor.reset();
+            filter = PPGBandpassFilter(50.0f);  // Reset filter too
+            monitor.setFilter(&filter);
+            currentRunOutput.clear();
+        }
+        
+        lastState = currentState;
     }
     
-    // Get filename for display
-    size_t lastSlash = inputFile.find_last_of("/\\");
-    std::string filename = (lastSlash != std::string::npos) ? inputFile.substr(lastSlash + 1) : inputFile;
+    // Handle case where we're still in a run at end of file
+    if (monitor.getState() != IDLE && !currentRunOutput.empty()) {
+        std::cout << "\n  Note: Run #" << runNumber << " incomplete (file ended mid-measurement)\n";
+    }
     
-    // Print results
-    printResults(monitor, filename);
-    
-    // Create output filename with timestamp
-    std::string baseName = getBasename(inputFile);
-    std::string timestamp = getTimestamp();
-    std::string outputFile = outputDir + "\\" + baseName + "_results_" + timestamp + ".csv";
-    
-    // Output detailed CSV
-    outputDetailedCSV(data, monitor, outputFile, hasRawPPG);
+    if (runNumber == 1) {
+        std::cout << "No complete runs detected in this file\n";
+    } else {
+        std::cout << "Detected " << (runNumber - 1) << " complete measurement run(s)\n";
+    }
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <csv_file_or_folder> [output_folder]\n";
-        std::cerr << "\nExamples:\n";
-        std::cerr << "  " << argv[0] << " data.csv\n";
-        std::cerr << "  " << argv[0] << " data_folder\n";
-        std::cerr << "  " << argv[0] << " data_folder results_folder\n";
+        std::cerr << "Usage: " << argv[0] << " <input_csv_or_folder> [output_folder]\n";
         return 1;
     }
-    
+
     std::string inputPath = argv[1];
     std::string outputDir = (argc >= 3) ? argv[2] : ".";
-    
-    std::cout << "========== BP Detector CSV Test ==========\n";
-    
-    // Create BPMonitor
+    outputDir.erase(std::remove(outputDir.begin(), outputDir.end(), ' '), outputDir.end());
+
+    std::cout << "========== BP Detector Multi-Run CSV Processor ==========\n";
+
     BPMonitor monitor;
+    std::vector<SystolicDetector*> allocatedDetectors;
+
+    // Add detectors
+    int windows[] = {20, 30, 40, 50};
+    float thresholds[] = {2.0, 2.5, 3.0, 3.5};
+    int holds[] = {5, 10};
     
-    // Store dynamically allocated detectors for cleanup
-    std::vector<PulseDetector*> allocatedDetectors;
-    
-    // Add detectors to test
-    // =========================================================
-    //  FIXED AUTO-GENERATED BASELINE + DERIVATIVE DETECTORS
-    //  (Dynamic allocation – NO dangling pointers)
-    // =========================================================
-
-    //
-    // ------------ BASELINE DETECTORS ------------
-    // Format: BaselineDetector(w, t, h, m)
-    //
-
-    #define ADD_BASE(w, t, h, m) \
-        { \
-            auto* det = new BaselineDetector(w, t, h, m); \
-            allocatedDetectors.push_back(det); \
-            monitor.addDetector(det); \
-        }
-
-    {
-        int windows[]      = {5, 20, 35, 50, 65, 80};
-        float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 4.0};
-        int holds[]        = {0, 2, 5, 10};
-        int modes[]        = {1, 2};
-
-        for (int w : windows) {
-            for (float t : thresholds) {
-                for (int h : holds) {
-                    for (int m : modes) {
-                        ADD_BASE(w, t, h, m);
-                    }
-                }
+    for (int w : windows) {
+        for (float t : thresholds) {
+            for (int h : holds) {
+                auto* det = new BaselineDetector(w, t, h);
+                allocatedDetectors.push_back(det);
+                monitor.addDetector(det);
             }
         }
     }
 
-    //
-    // ------------ DERIVATIVE DETECTORS ------------
-    // Format: DerivativeDetector(w, g)
-    //
-
-    #define ADD_DERIV(w, g) \
-        { \
-            auto* det = new DerivativeDetector(w, g); \
-            allocatedDetectors.push_back(det); \
-            monitor.addDetector(det); \
-        }
-
-    {
-        // Small windows (2–8), gain step 0.2
-        int smallW[] = {2, 4, 6, 8};
-        for (int w : smallW) {
-            for (float g = 0.2f; g <= 2.0f + 1e-6f; g += 0.2f) {
-                ADD_DERIV(w, g);
-            }
-        }
-
-        // Medium windows (10–16), gain step 0.5
-        int medW[] = {10, 12, 14, 16};
-        for (int w : medW) {
-            for (float g = 0.5f; g <= 2.0f + 1e-6f; g += 0.5f) {
-                ADD_DERIV(w, g);
-            }
-        }
-
-        // Large windows (18–20), gain step 1.0
-        int largeW[] = {18, 20};
-        for (int w : largeW) {
-            for (float g = 1.0f; g <= 2.0f + 1e-6f; g += 1.0f) {
-                ADD_DERIV(w, g);
-            }
-        }
-    }
-    
     std::cout << "Using " << monitor.getDetectorCount() << " detectors\n";
-    
-    // Get list of files to process
+
+    // Get files
     std::vector<std::string> filesToProcess;
-    
     if (isDirectory(inputPath)) {
-        filesToProcess = getCSVFiles(inputPath);
-        std::cout << "Found " << filesToProcess.size() << " CSV files in directory\n";
+        filesToProcess = findAllCSVFiles(inputPath);
+        std::cout << "Found " << filesToProcess.size() << " CSV files\n";
     } else {
         filesToProcess.push_back(inputPath);
     }
-    
-    // Process all files
-    for (const auto& file : filesToProcess) {
-        processFile(file, outputDir, monitor);
+
+    if (filesToProcess.empty()) {
+        std::cerr << "No CSV files found!\n";
+        return 1;
     }
-    
+
+    createDirectory(outputDir);
+
+    // Process all files
+    int totalRuns = 0;
+    for (const auto& file : filesToProcess) {
+        processFile(file, outputDir, inputPath, monitor);
+    }
+
     std::cout << "\n========================================\n";
-    std::cout << "Processing Complete!\n";
-    std::cout << "Processed " << filesToProcess.size() << " file(s)\n";
+    std::cout << "Complete! Processed " << filesToProcess.size() << " file(s)\n";
     std::cout << "========================================\n";
-    
+
     // Cleanup
     for (auto* det : allocatedDetectors) {
         delete det;
     }
-    
+
     return 0;
 }

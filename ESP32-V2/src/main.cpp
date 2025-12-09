@@ -7,7 +7,7 @@
 #include "SerialLogger.h"
 #include "DataLogger.h"
 #include "BPMonitor.h"
-#include "PulseDetector.h"
+#include "SystolicDetector.h"
 
 // Hardware adapters
 PressureSensor pressureSensor;
@@ -21,14 +21,14 @@ BPMonitor bpMonitor;
 DataLogger dataLogger(&serialLogger, &bpMonitor);
 
 // Detection algorithms
-BaselineDetector det1(20, 2.5, 5, 2);
-BaselineDetector det2(40, 2.5, 5, 2);
-BaselineDetector det3(60, 2.5, 5, 2);
-BaselineDetector det4(10, 2.5, 5, 2);
-BaselineDetector det5(20, 1.0, 5, 2);
-BaselineDetector det6(20, 1.5, 5, 1);
-BaselineDetector det7(10, 1.0, 5, 1);
-BaselineDetector det8(20, 2.5, 5, 1);
+BaselineDetector det1(20, 2.5, 5);
+BaselineDetector det2(40, 2.5, 5);
+BaselineDetector det3(60, 2.5, 5);
+BaselineDetector det4(10, 2.5, 5);
+BaselineDetector det5(20, 1.0, 5);
+BaselineDetector det6(20, 1.5, 5);
+BaselineDetector det7(10, 1.0, 5);
+BaselineDetector det8(20, 2.5, 5);
 
 DerivativeDetector det11(5, 20);
 DerivativeDetector det12(10, 20);
