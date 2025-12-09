@@ -822,6 +822,10 @@ function shortLabels = shortenDetectorNames(detectors)
         % Remove common prefixes
         label = strrep(label, 'BL_', '');
         label = strrep(label, 'DRV_', '');
+        % Replace underscores with spaces
+        label = strrep(label, '_', ' ');
+        % Replace periods with underscores (if any)
+        label = strrep(label, '.', '_');
         shortLabels{i} = label;
     end
 end
