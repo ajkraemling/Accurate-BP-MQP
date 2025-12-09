@@ -205,13 +205,12 @@ void BPMonitor::update(const BPMeasurement& measurement)
         if (pressure > minPressure)
         {
             state = INFLATING;
-            std::cout << "Start Inflating" << std::endl;
         }
         break;
 
     case INFLATING:
         // WRONG!!!!!!!!!!!!!!!
-        // Detect pressure oscillations during inflation for baseline HR
+        // Detect pressure oscillations during IDLE for baseline HR
         if (!hrCalculated && pressure > 30 && pressure < 170)
         {
             if (detectPressureOscillation(pressure, currentTime))

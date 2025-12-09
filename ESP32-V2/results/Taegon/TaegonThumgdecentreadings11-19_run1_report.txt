@@ -1,0 +1,27 @@
+=== Blood Pressure Measurement Report - Run #1 ===
+
+No baseline HR detected
+
+*** ENSEMBLE RESULT ***
+Systolic: 111 mmHg
+Confidence: 0.648
+95% CI: [109 - 113] mmHg
+Agreement: 23/31 detectors
+
+MAP: 178 mmHg
+Est. Diastolic: 200 mmHg
+
+--- Top Detectors ---
+
+Detector                           Best (mmHg) Confidence  
+------------------------------------------------------------
+BL_W20_T2.0_D10                    112         1.820
+BL_W30_T3.0_D5                     113         1.820
+BL_W30_T2.5_D10                    112         1.820
+BL_W30_T2.5_D5                     113         1.820
+BL_W30_T2.0_D10                    112         1.820
+BL_W30_T2.0_D5                     113         1.820
+BL_W20_T2.5_D10                    112         1.680
+BL_W30_T3.0_D10                    112         1.680
+BL_W20_T2.5_D5                     113         1.404
+BL_W20_T2.0_D5                     113         1.404

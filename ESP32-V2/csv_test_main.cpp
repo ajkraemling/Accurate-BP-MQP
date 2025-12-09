@@ -436,7 +436,11 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         // Output detector results - these are captured at the time of processing
         for (int i = 0; i < monitor.getDetectorCount(); i++) {
             DetectionRecord best = monitor.getDetector(i)->getBestDetection();
-            out << "," << std::fixed << std::setprecision(0) << best.pressure;
+            if (row.time >= best.timestamp) {
+                out << "," << std::fixed << std::setprecision(0) << best.pressure;
+            } else {
+                out << ",0";
+            }
         }
         out << "\n";
     }
@@ -541,7 +545,6 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
     monitor.reset();
     
     int runNumber = 1;
-    BPState lastState = IDLE;
     std::vector<std::pair<CSVRow, int>> currentRunOutput;  // Store rows and ppg for CSV output
     
     // Process all rows, detecting and handling run completions
@@ -566,7 +569,7 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
         currentRunOutput.push_back({row, measurement.ppgSignal});
         
         // Check if we just transitioned to COMPLETE
-        if (currentState == COMPLETE && lastState != COMPLETE) {
+        if (currentState == COMPLETE) {
             // Print results for this run
             printRunResults(monitor, getFilename(inputFile), runNumber);
             
@@ -585,12 +588,10 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
             // Reset for next run
             runNumber++;
             monitor.reset();
-            filter = PPGBandpassFilter(50.0f);  // Reset filter too
+            filter.reset();
             monitor.setFilter(&filter);
             currentRunOutput.clear();
         }
-        
-        lastState = currentState;
     }
     
     // Handle case where we're still in a run at end of file
