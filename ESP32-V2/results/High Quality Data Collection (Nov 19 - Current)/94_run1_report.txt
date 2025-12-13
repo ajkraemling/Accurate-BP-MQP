@@ -1,0 +1,30 @@
+=== Blood Pressure Measurement Report - Run #1 ===
+
+Baseline HR: 58.7 BPM
+Valid interval: 532-1500 ms
+
+*** ENSEMBLE RESULT ***
+Systolic: 135 mmHg
+Confidence: 0.602
+95% CI: [130 - 140] mmHg
+Agreement: 29/32 detectors
+
+MAP: 109 mmHg
+Est. Diastolic: 96 mmHg
+Oscillometric MAP Systolic: 131 mmHg
+Oscillometric MAP Diastolic: 106 mmHg
+
+--- Top Detectors ---
+
+Detector                           Best (mmHg) Confidence  
+------------------------------------------------------------
+BL_W50_T2.0_D10                    133         1.420
+BL_W50_T2.0_D5                     132         1.216
+BL_W40_T2.0_D10                    133         1.196
+BL_W40_T2.0_D5                     134         1.106
+BL_W20_T2.0_D10                    133         1.053
+BL_W20_T2.0_D5                     135         0.972
+BL_W40_T2.5_D5                     134         0.972
+BL_W50_T3.0_D10                    133         0.897
+BL_W50_T2.5_D10                    133         0.897
+BL_W40_T2.5_D10                    133         0.897

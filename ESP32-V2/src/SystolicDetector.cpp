@@ -75,7 +75,7 @@ void SystolicDetector::updateConfidenceScores(unsigned long currentTimestamp)
         DetectionRecord& det = detections[i];
         
         // Count CONSECUTIVE beats that came after this detection
-        // A beat only counts if it's within expected range (40-180 BPM = 333-1500ms)
+        // A beat only counts if it's within expected range (40-200 BPM = 300-1500ms)
         int beatsAfter = 0;
         unsigned long expectedNextBeat = det.timestamp;
         
@@ -84,7 +84,7 @@ void SystolicDetector::updateConfidenceScores(unsigned long currentTimestamp)
             unsigned long interval = detections[j].timestamp - expectedNextBeat;
             
             // Check if this beat is within reasonable BPM range
-            if (interval >= 333 && interval <= 1500)  // 40-180 BPM
+            if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)  // 40-180 BPM
             {
                 beatsAfter++;
                 expectedNextBeat = detections[j].timestamp;
@@ -150,8 +150,8 @@ float SystolicDetector::calculateIntervalConsistency(int detectionIndex)
         if (hrRange.isValid) {
             inRange = (interval >= hrRange.minInterval && interval <= hrRange.maxInterval);
         } else {
-            // Fallback to default (40-180 BPM = 333-1500ms)
-            inRange = (interval >= 333 && interval <= 1500);
+            // Fallback to default (40-180 BPM = 300-1500ms)
+            inRange = (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS);
         }
         
         if (inRange) {
@@ -266,9 +266,6 @@ BaselineDetector::~BaselineDetector()
 
 bool BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp)
 {
-    if (ppgSignal < 10)
-        return false;
-
     // Update rolling window
     if (baselineCount < windowSize)
     {
@@ -310,15 +307,11 @@ bool BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long
     if (currentlyAbove)
     {
         // Minimum interval enforcement (300ms = ~200 BPM max)
-        if (lastBeatTime == 0 || (timestamp - lastBeatTime) > 300)
+        if (lastBeatTime == 0 || (timestamp - lastBeatTime) > MIN_BEAT_INTERVALS_MS)
         {
             recordDetection(pressureSignal, timestamp);
             return true;
         }
-    }
-    else
-    {
-        consecutiveAbove = 0;  // Reset when signal drops below threshold
     }
 
     return false;
@@ -370,20 +363,8 @@ bool DerivativeDetector::detect(int ppgSignal, float pressureSignal, unsigned lo
     int oldestIdx = bufferIdx;
     int derivative = ppgSignal - signalBuffer[oldestIdx];
 
-    int avgSignal = 0;
-    for (int i = 0; i < windowSize; i++)
-    {
-        avgSignal += signalBuffer[i];
-    }
-    avgSignal /= windowSize;
-    
-    if (avgSignal < 5)
-    {
-        return false;  // Signal too weak/flat
-    }
-
     // Minimum time between pulses using heart rate range
-    unsigned long minInterval = hrRange.isValid ? hrRange.minInterval : 300;
+    unsigned long minInterval = hrRange.isValid ? hrRange.minInterval : MIN_BEAT_INTERVALS_MS;
     if (derivative > threshold && 
         (lastBeatTime == 0 || (timestamp - lastBeatTime) > minInterval))
     {

@@ -52,18 +52,13 @@ private:
     SystolicDetector *detectors[MAX_DETECTORS];
     int detectorCount;
 
-    // Thresholds
-    float startPressure;
-    float minPressure;
-    float pressureDropThreshold;
-    unsigned long timeoutMs;
-    
     // Baseline heart rate tracking
     static const int MAX_BASELINE_BEATS = 10;
     unsigned long baselineBeats[MAX_BASELINE_BEATS];
     int baselineBeatCount;
     HeartRateRange baselineHR;
     bool hrCalculated;
+    unsigned long lastBPMMeasurement;
     
     // Pressure oscillation detection for baseline HR
     static const int PRESSURE_HISTORY_SIZE = 5;
@@ -78,16 +73,13 @@ private:
     MAPDetector mapDetector;
     
     // Calculate baseline HR from inflation pressure oscillations
-    void calculateBaselineHeartRate();
+    void calculateBaselineHeartRate(unsigned long currentTime);
     
     // Detect pressure oscillations (heartbeats)
     bool detectPressureOscillation(float currentPressure, unsigned long timestamp);
 
 public:
-    BPMonitor(float startPressure = 140.0f, 
-              float minPressure = 80.0f,
-              float pressureDropThreshold = 20.0f,
-              unsigned long timeoutMs = 90000);
+    BPMonitor();
     
     void addDetector(SystolicDetector *detector);
     void reset();
@@ -113,8 +105,6 @@ public:
     float getBaselineBPM() const;
 
     // MAP 
-    bool hasValidMAPData() const;
-    int getOscillationCount() const;
     float getMAP();
     MAPDetector* getMAPDetector();
 };

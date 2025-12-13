@@ -4,12 +4,9 @@
 #include <cmath>
 #include <iostream>
 
-BPMonitor::BPMonitor(float startPressure, float minPressure, 
-                     float pressureDropThreshold, unsigned long timeoutMs)
+BPMonitor::BPMonitor()
     : state(IDLE), systolic(0), maxPressure(0), startTime(0),
-      detectorCount(0), startPressure(startPressure), minPressure(minPressure),
-      pressureDropThreshold(pressureDropThreshold), timeoutMs(timeoutMs),
-      baselineBeatCount(0), hrCalculated(false),
+      detectorCount(0), baselineBeatCount(0), hrCalculated(false),
       pressureHistoryIdx(0), pressureHistoryCount(0), lastPressureDerivative(0)
 {
     for (int i = 0; i < MAX_DETECTORS; i++)
@@ -28,10 +25,7 @@ void BPMonitor::addDetector(SystolicDetector *detector)
     }
 }
 
-void BPMonitor::setFilter(PPGBandpassFilter* filter)
-{
-    externalFilter = filter;
-}
+void BPMonitor::setFilter(PPGBandpassFilter* filter) { externalFilter = filter; }
 
 void BPMonitor::reset()
 {
@@ -55,26 +49,8 @@ void BPMonitor::reset()
     }
 }
 
-bool BPMonitor::hasValidMAPData() const
-{
-    return mapDetector.hasValidData();
-}
-
-float BPMonitor::getMAP()
-{
-    mapDetector.detectMAP();
-    return mapDetector.getMAP();
-}
-
-MAPDetector* BPMonitor::getMAPDetector()
-{
-    return &mapDetector;
-}
-
-int BPMonitor::getOscillationCount() const
-{
-    return mapDetector.getOscillationCount();
-}
+float BPMonitor::getMAP() { return mapDetector.getMAP(); }
+MAPDetector* BPMonitor::getMAPDetector() { return &mapDetector; }
 
 bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long timestamp)
 {
@@ -110,7 +86,6 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
     float prevDetrended = pressureHistory[prevIdx] - mean;
     
     // Detect peak: was positive, now negative (zero crossing from above)
-    // Lowered threshold from 0.2 to 0.1 for better sensitivity
     bool isPeak = (prevDetrended > 0.1f && currentDetrended < 0);
     
     if (isPeak)
@@ -130,7 +105,7 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
             unsigned long interval = timestamp - baselineBeats[baselineBeatCount-1];
             
             // Only accept beats in physiological range (40-200 BPM = 300-1500ms)
-            if (interval >= 300 && interval <= 1500)
+            if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)
             {
                 if (baselineBeatCount < MAX_BASELINE_BEATS)
                 {
@@ -144,10 +119,8 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
     return false;
 }
 
-void BPMonitor::calculateBaselineHeartRate()
+void BPMonitor::calculateBaselineHeartRate(unsigned long currentTime)
 {
-    if (baselineBeatCount < 2) return;  // Need at least 2 beats (changed from 3)
-    
     // Calculate average interval
     unsigned long totalInterval = 0;
     for (int i = 1; i < baselineBeatCount; i++)
@@ -158,29 +131,25 @@ void BPMonitor::calculateBaselineHeartRate()
     float avgInterval = (float)totalInterval / (baselineBeatCount - 1);
     float avgBPM = 60000.0f / avgInterval;
     
-    // Account for delay: pressure oscillations happen ~50-100ms before PPG detection
-    // We'll use 75ms as typical delay
-    // During deflation, PPG detections should be EARLIER than they would appear in pressure
-    // So we need to REDUCE the minimum interval slightly to account for this
+    // Account for delay
     const float DELAY_MS = 75.0f;
     
-    // Set range for all detectors (±40 BPM tolerance)
+    // Set range for all detectors (+/-40 BPM tolerance)
     baselineHR.setFromBPM(avgBPM, 40.0f);
     
     // Adjust minimum interval to account for delay
     // (pressure peak happens first, PPG follows ~75ms later)
-    if (baselineHR.minInterval > DELAY_MS) {
+    if (baselineHR.minInterval > DELAY_MS) 
         baselineHR.minInterval -= (unsigned long)DELAY_MS;
-    }
     
     for (int i = 0; i < detectorCount; i++)
     {
         detectors[i]->setHeartRateRange(baselineHR);
     }
     
-    // Configure external filter if provided
-    if (externalFilter != nullptr)
-    {
+    // Configure external filter
+    if (externalFilter != nullptr && (currentTime - lastBPMMeasurement) > 4000) {
+        lastBPMMeasurement = currentTime;
         externalFilter->setHeartRateRange(avgBPM, 40.0f);
     }
     
@@ -202,93 +171,54 @@ void BPMonitor::update(const BPMeasurement& measurement)
     switch (state)
     {
     case IDLE:
-        if (pressure > minPressure)
+        if (pressure > BP_MIN_IDLE_PRESSURE)
         {
             state = INFLATING;
+
+            mapDetector.reset();
+            hrCalculated = false;
+            baselineBeatCount = 0;
+            maxPressure = pressure;
         }
         break;
 
     case INFLATING:
-        // WRONG!!!!!!!!!!!!!!!
-        // Detect pressure oscillations during IDLE for baseline HR
-        if (!hrCalculated && pressure > 30 && pressure < 170)
+        if (pressure >= BP_START_PRESSURE)
         {
-            if (detectPressureOscillation(pressure, currentTime))
-            {
-                // Calculate HR after we have enough beats (lowered to 2)
-                if (baselineBeatCount >= 2)
-                {
-                    calculateBaselineHeartRate();
-                }
+            if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD)) {
+                state = MEASURING;
+                startTime = currentTime;
             }
-        }
-        
-        if (pressure >= startPressure)
-        {
-            state = MEASURING;
-            startTime = currentTime;
-            
-            // If we still don't have baseline HR by now, calculate what we have
-            if (!hrCalculated && baselineBeatCount >= 2)
-            {
-                calculateBaselineHeartRate();
-            }
-        }
-        else if (pressure < minPressure && maxPressure > startPressure)
-        {
-            reset();
         }
         break;
 
     case MEASURING:
-        // Continue detecting pressure oscillations during deflation for baseline HR
-        if (!hrCalculated && pressure > 30 && pressure < 170)
+        if (detectPressureOscillation(pressure, currentTime))
         {
-            if (detectPressureOscillation(pressure, currentTime))
+            if (baselineBeatCount >= 2)
             {
-                mapDetector.recordBeat(pressure, currentTime);
-
-                // Calculate HR after we have enough beats (lowered to 2)
-                if (baselineBeatCount >= 2)
-                {
-                    calculateBaselineHeartRate();
-                }
+                calculateBaselineHeartRate(currentTime);
             }
         }
 
-        // Run MAP detector
-        mapDetector.addReading(pressure);
-        
-        // Run detectors after sufficient pressure drop
-        // Run detectors after sufficient pressure drop
-        // Let ALL detectors continue detecting throughout the measurement
-        if (pressure < (maxPressure - pressureDropThreshold))
+        mapDetector.addSample(pressure, currentTime);
+
+        for (int i = 0; i < detectorCount; i++)
         {
-            for (int i = 0; i < detectorCount; i++)
-            {
-                detectors[i]->detect(ppgSignal, pressure, currentTime);
-            }
+            detectors[i]->detect(ppgSignal, pressure, currentTime);
         }
 
-        // Check for timeout
-        if (currentTime - startTime > timeoutMs)
+        if (pressure < BP_MIN_IDLE_PRESSURE)
         {
             state = COMPLETE;
         }
 
-        // End when pressure drops low
-        if (pressure < 10)
-        {
-            state = COMPLETE;
-        }
         break;
 
+
     case COMPLETE:
-        if (mapDetector.hasValidData())
-        {
-            mapDetector.detectMAP();
-        }
-        // Stay in complete state
+        mapDetector.detectMAP();
+        // Show results, maybe loop back to IDLE?
         break;
     }
 }
@@ -323,20 +253,9 @@ BPStatus BPMonitor::getStatus() const
     return status;
 }
 
-float BPMonitor::getSystolic() const
-{
-    return systolic;
-}
-
-BPState BPMonitor::getState() const
-{
-    return state;
-}
-
-int BPMonitor::getDetectorCount() const
-{
-    return detectorCount;
-}
+float BPMonitor::getSystolic() const { return systolic; }
+BPState BPMonitor::getState() const { return state; }
+int BPMonitor::getDetectorCount() const { return detectorCount; }
 
 SystolicDetector* BPMonitor::getDetector(int index) const
 {
@@ -372,10 +291,7 @@ float BPMonitor::getBestSystolic(float* outConfidence) const
     return bestOverall.pressure;
 }
 
-HeartRateRange BPMonitor::getBaselineHeartRate() const
-{
-    return baselineHR;
-}
+HeartRateRange BPMonitor::getBaselineHeartRate() const { return baselineHR; }
 
 float BPMonitor::getBaselineBPM() const
 {

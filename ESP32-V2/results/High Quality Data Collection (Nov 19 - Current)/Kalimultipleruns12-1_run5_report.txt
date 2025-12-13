@@ -1,0 +1,29 @@
+=== Blood Pressure Measurement Report - Run #5 ===
+
+No baseline HR detected
+
+*** ENSEMBLE RESULT ***
+Systolic: 113 mmHg
+Confidence: 0.425
+95% CI: [109 - 116] mmHg
+Agreement: 22/30 detectors
+
+MAP: 88 mmHg
+Est. Diastolic: 76 mmHg
+Oscillometric MAP Systolic: 106 mmHg
+Oscillometric MAP Diastolic: 85 mmHg
+
+--- Top Detectors ---
+
+Detector                           Best (mmHg) Confidence  
+------------------------------------------------------------
+BL_W50_T3.5_D10                    111         0.877
+BL_W50_T3.5_D5                     111         0.877
+BL_W50_T3.0_D10                    111         0.877
+BL_W50_T3.0_D5                     111         0.877
+BL_W50_T2.5_D10                    111         0.877
+BL_W50_T2.5_D5                     111         0.877
+BL_W30_T2.0_D10                    111         0.747
+BL_W40_T3.5_D10                    111         0.747
+BL_W30_T2.5_D10                    111         0.747
+BL_W40_T3.0_D10                    111         0.747

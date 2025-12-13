@@ -1,6 +1,8 @@
 #ifndef PULSE_DETECTOR_H
 #define PULSE_DETECTOR_H
 
+#include "config.h"
+
 struct DetectionRecord
 {
     float pressure;           // Systolic pressure at this detection
@@ -16,7 +18,7 @@ struct HeartRateRange
     unsigned long maxInterval;  // Minimum HR (longest interval)
     bool isValid;
     
-    HeartRateRange() : minInterval(333), maxInterval(1500), isValid(false) {}
+    HeartRateRange() : minInterval(MIN_BEAT_INTERVALS_MS), maxInterval(MAX_BEAT_INTERVALS_MS), isValid(false) {}
     
     void setFromBPM(float baselineBPM, float tolerance = 40.0f) {
         if (baselineBPM > 0) {
@@ -24,8 +26,10 @@ struct HeartRateRange
             float maxBPM = baselineBPM + tolerance;
             
             // Clamp to reasonable limits
-            if (minBPM < 40) minBPM = 40;
-            if (maxBPM > 180) maxBPM = 180;
+            float clampMin = 60000.0f / MAX_BEAT_INTERVALS_MS;
+            float clampMax = 60000.0f / MIN_BEAT_INTERVALS_MS;
+            if (minBPM < clampMin) minBPM = clampMin;
+            if (maxBPM > clampMax) maxBPM = clampMax;
             
             // Convert BPM to milliseconds: interval = 60000 / BPM
             maxInterval = (unsigned long)(60000.0f / minBPM);  // Slower HR = longer interval

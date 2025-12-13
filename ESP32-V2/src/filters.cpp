@@ -99,25 +99,17 @@ void PPGBandpassFilter::setHeartRateRange(float baselineBPM, float tolerance) {
         updateFilterCoefficients();
         return;
     }
-    
-    // Convert BPM to Hz
-    float centerHz = baselineBPM / 60.0f;
-    
-    // Set cutoffs with tolerance (in Hz)
-    float toleranceHz = tolerance / 60.0f;
+
+    // If negative, make positive
+    if (tolerance < 0) tolerance = tolerance * -1.0f;
     
     // HPF: baseline - tolerance, but not below 0.3 Hz (18 BPM)
-    hpfCutoff = centerHz - toleranceHz;
+    hpfCutoff = (baselineBPM - tolerance) / 60.0f;
     if (hpfCutoff < 0.3f) hpfCutoff = 0.3f;
     
-    // LPF: baseline + tolerance*2 (allow harmonics), but not above 5 Hz (300 BPM)
-    lpfCutoff = centerHz + (toleranceHz * 2.0f);
+    // LPF: baseline + 2*tolerance (allow harmonics), but not above 5 Hz (300 BPM)
+    lpfCutoff = (baselineBPM + (2.0f * tolerance)) / 60.0f;
     if (lpfCutoff > 5.0f) lpfCutoff = 5.0f;
-    
-    // Sanity check: ensure LPF > HPF
-    if (lpfCutoff <= hpfCutoff) {
-        lpfCutoff = hpfCutoff + 1.0f;
-    }
     
     updateFilterCoefficients();
 }

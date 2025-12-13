@@ -46,6 +46,10 @@ struct CSVRow {
     int rawPPGSignal;
     bool hasRawPPG;
     int ausPulseHeard;
+    float oscAmplitude;  
+    int mapValue;      
+    int oscSystolic;   
+    int oscDiastolic;  
 };
 
 // CSV Data structure with column tracking
@@ -67,7 +71,6 @@ struct RunData {
     std::vector<CSVRow> rows;
     unsigned long startTime;
     unsigned long endTime;
-    std::vector<std::pair<CSVRow, int>> detectorOutputs;  // Store row and ppgSignal for each sample
 };
 
 // Helper functions for path manipulation
@@ -172,21 +175,36 @@ CSVData loadCSV(const std::string& filename) {
         return data;
     }
 
-    data.headers = parseCSVLine(line);
+    std::vector<std::string> getHeaders = parseCSVLine(line);
 
-    data.timeColIdx = findColumnIndex(data.headers, {"Time", "Timestamp"});
-    data.pressureColIdx = findColumnIndex(data.headers, {"Pressure"});
-    data.ppgColIdx = findColumnIndex(data.headers, {"PPGSignal"});
-    data.rawPPGColIdx = findColumnIndex(data.headers, {"rawPPGSignal", "PPG"});
-    data.ausPulseHeardIdx = findColumnIndex(data.headers, {"AUS_PULSE_HEARD"});
+    data.timeColIdx = findColumnIndex(getHeaders, {"Time", "Timestamp"});
+    data.pressureColIdx = findColumnIndex(getHeaders, {"Pressure"});
+    data.ppgColIdx = findColumnIndex(getHeaders, {"PPGSignal"});
+    data.rawPPGColIdx = findColumnIndex(getHeaders, {"rawPPGSignal", "PPG"});
+    data.ausPulseHeardIdx = findColumnIndex(getHeaders, {"AUS_PULSE_HEARD"});
 
     if (data.timeColIdx == -1 || data.pressureColIdx == -1) {
         std::cerr << "Error: Required columns not found!" << std::endl;
         return data;
     }
 
+    std::vector<std::string> filtered;
+    filtered.push_back("Time");
+    filtered.push_back("Pressure");
+
+    if (data.ppgColIdx != -1)
+        filtered.push_back("PPGSignal");
+
+    if (data.rawPPGColIdx != -1)
+        filtered.push_back("rawPPGSignal");
+
+    if (data.ausPulseHeardIdx != -1)
+        filtered.push_back("AUS_PULSE_HEARD");
+
     data.hasRawPPG = (data.rawPPGColIdx != -1);
     data.hasAusPulseHeard = (data.ausPulseHeardIdx != -1);
+
+    data.headers = filtered;
 
     while (std::getline(file, line)) {
         if (line.empty() || line[0] == '#') continue;
@@ -313,7 +331,7 @@ std::vector<RunData> splitIntoRuns(const CSVData& data, BPMonitor& monitor) {
     bool inRun = false;
     
     // Create filter for processing
-    PPGBandpassFilter filter(50.0f);
+    PPGBandpassFilter filter(1000.0f / SAMPLE_RATE_MS);
     monitor.setFilter(&filter);
     monitor.reset();
     
@@ -347,12 +365,16 @@ std::vector<RunData> splitIntoRuns(const CSVData& data, BPMonitor& monitor) {
         }
         
         // Detect end of run (transition to COMPLETE)
-        if (inRun && currentState == COMPLETE && lastState != COMPLETE) {
+        if (inRun && currentState == COMPLETE && measurement.pressure < BP_MIN_IDLE_PRESSURE - PRESSURE_DROP_THRESHOLD) {
             currentRun.endTime = row.time;
             runs.push_back(currentRun);
             
             // Prepare for next run
             currentRun.runNumber++;
+            currentRun.rows.clear();
+            inRun = false;
+            monitor.reset();
+        } else if (inRun && currentState == INFLATING && measurement.pressure < BP_MIN_IDLE_PRESSURE - PRESSURE_DROP_THRESHOLD) {
             currentRun.rows.clear();
             inRun = false;
             monitor.reset();
@@ -392,19 +414,19 @@ void printRunResults(BPMonitor& monitor, const std::string& filename, int runNum
     std::cout << "Agreement: " << ensembleResult.agreementCount << "/" 
               << ensembleResult.totalDetectors << " detectors\n";
 
-    if (monitor.hasValidMAPData()) {
-        float map = monitor.getMAP();
-        std::cout << "MAP: " << map << " mmHg\n";
-        if (ensembleResult.systolic > 0 && map > 0) {
-            float diastolic = map - (ensembleResult.systolic - map) / 3.0f;
-            std::cout << "Est. Diastolic: " << diastolic << " mmHg\n";
-        }
+    float map = monitor.getMAP();
+    std::cout << "MAP: " << map << " mmHg\n";
+    if (ensembleResult.systolic > 0 && map > 0) {
+        float DBP = (3.0f * map - ensembleResult.systolic) / 2.0f;
+        std::cout << "Est. Diastolic: " << DBP << " mmHg\n";
     }
+    std::cout << "MAP Systolic: " << monitor.getMAPDetector()->getSystolic() << " mmHg\n";
+    std::cout << "MAP Diastolic: " << monitor.getMAPDetector()->getDiastolic() << " mmHg\n";
 }
 
 // Output CSV for one run
 void outputRunCSV(const CSVData& originalData, BPMonitor& monitor, 
-                  const std::string& outputFile, const std::vector<std::pair<CSVRow, int>>& detectorOutputs) {
+                  const std::string& outputFile, const std::vector<CSVRow>& outputRows) {
     std::ofstream out(outputFile);
     
     // Header
@@ -412,19 +434,18 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         out << originalData.headers[i];
         if (i < originalData.headers.size() - 1) out << ",";
     }
+    out << ",Osc_Amp,Osc_SBP,MAP,Osc_DBP,Est_DBP,EnsembleSystolic";
     for (int i = 0; i < monitor.getDetectorCount(); i++) {
         out << "," << monitor.getDetector(i)->getName();
     }
     out << "\n";
     
     // Output rows with detector results
-    for (const auto& entry : detectorOutputs) {
-        const CSVRow& row = entry.first;
-        int ppgSignal = entry.second;
+    for (const auto& row : outputRows) {
         
         // Output original columns
         out << row.time << "," << std::fixed << std::setprecision(2) << row.pressure 
-            << "," << ppgSignal;
+            << "," << row.ppgSignal;
         
         if (originalData.hasRawPPG) {
             out << "," << row.rawPPGSignal;
@@ -432,6 +453,12 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         if (originalData.hasAusPulseHeard) {
             out << "," << row.ausPulseHeard;
         }
+
+        BPResult ensembleResult = monitor.getEnsembleResult();
+        float DBP = (3.0f * row.mapValue - ensembleResult.systolic) / 2.0f;
+
+        out << "," << row.oscAmplitude << "," << row.oscSystolic 
+            << "," << row.mapValue << "," << row.oscDiastolic << "," << DBP << "," << ensembleResult.systolic;
         
         // Output detector results - these are captured at the time of processing
         for (int i = 0; i < monitor.getDetectorCount(); i++) {
@@ -470,14 +497,14 @@ void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runN
     out << "Agreement: " << ensembleResult.agreementCount << "/" 
         << ensembleResult.totalDetectors << " detectors\n\n";
     
-    if (monitor.hasValidMAPData()) {
-        float map = monitor.getMAP();
-        out << "MAP: " << map << " mmHg\n";
-        if (ensembleResult.systolic > 0 && map > 0) {
-            float diastolic = map - (ensembleResult.systolic - map) / 3.0f;
-            out << "Est. Diastolic: " << diastolic << " mmHg\n";
-        }
+    float map = monitor.getMAP();
+    out << "MAP: " << map << " mmHg\n";
+    if (ensembleResult.systolic > 0 && map > 0) {
+        float DBP = (3.0f * map - ensembleResult.systolic) / 2.0f;
+        out << "Est. Diastolic: " << DBP << " mmHg\n";
     }
+    out << "Oscillometric MAP Systolic: " << monitor.getMAPDetector()->getSystolic() << " mmHg\n";
+    out << "Oscillometric MAP Diastolic: " << monitor.getMAPDetector()->getDiastolic() << " mmHg\n";
     
     out << "\n--- Top Detectors ---\n\n";
     out << std::left << std::setw(35) << "Detector" << std::setw(12) << "Best (mmHg)" 
@@ -540,13 +567,15 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
     }
     
     // Create filter
-    PPGBandpassFilter filter(50.0f);
+    PPGBandpassFilter filter(1000.0f / SAMPLE_RATE_MS);
     monitor.setFilter(&filter);
     monitor.reset();
     
     int runNumber = 1;
-    std::vector<std::pair<CSVRow, int>> currentRunOutput;  // Store rows and ppg for CSV output
+    std::vector<CSVRow> currentRunOutput;  // Store rows and ppg for CSV output
     
+    BPState lastState = IDLE;
+
     // Process all rows, detecting and handling run completions
     for (const auto& row : data.rows) {
         BPMeasurement measurement;
@@ -563,13 +592,31 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
         }
         
         monitor.update(measurement);
-        BPState currentState = monitor.getState();
+
+        float osc_amp = monitor.getMAPDetector()->getLatestAmplitude();
+
+        float mapP = monitor.getMAPDetector()->getMAP();
+        float sysP = monitor.getMAPDetector()->getSystolic();
+        float diaP = monitor.getMAPDetector()->getDiastolic();
+
+        static float lastMAP=0, lastSys=0, lastDia=0;
+
+        if (mapP > 0 && measurement.pressure <= mapP) lastMAP = mapP;
+        if (sysP > 0 && measurement.pressure <= sysP) lastSys = sysP;
+        if (diaP > 0 && measurement.pressure <= diaP) lastDia = diaP;
+
+        CSVRow r = row; 
+        r.ppgSignal    = measurement.ppgSignal;
+        r.oscAmplitude = osc_amp;
+        r.mapValue     = lastMAP;
+        r.oscSystolic  = lastSys;
+        r.oscDiastolic = lastDia;
         
         // Store row and processed PPG signal for current run
-        currentRunOutput.push_back({row, measurement.ppgSignal});
+        currentRunOutput.push_back(r);
         
-        // Check if we just transitioned to COMPLETE
-        if (currentState == COMPLETE) {
+        // Check if we did one run on COMPLETE
+        if (lastState == COMPLETE) {
             // Print results for this run
             printRunResults(monitor, getFilename(inputFile), runNumber);
             
@@ -592,6 +639,8 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
             monitor.setFilter(&filter);
             currentRunOutput.clear();
         }
+
+        lastState = monitor.getState();
     }
     
     // Handle case where we're still in a run at end of file
