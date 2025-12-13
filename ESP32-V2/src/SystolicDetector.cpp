@@ -332,61 +332,68 @@ void BaselineDetector::reset()
     memset(recentIntervals, 0, sizeof(recentIntervals));
 }
 
-// DerivativeDetector implementation
-DerivativeDetector::DerivativeDetector(int window, int derivThreshold)
-    : SystolicDetector(nullptr), windowSize(window), threshold(derivThreshold),
-      bufferIdx(0), bufferCount(0)
+DerivativeDetector::DerivativeDetector(int derivThreshold)
+    : SystolicDetector(nullptr),
+      threshold(derivThreshold),
+      prevSample(0),
+      prevDerivative(0),
+      hasPrev(false)
 {
-    snprintf(nameBuffer, sizeof(nameBuffer), "DRV_W%d_T%d", window, derivThreshold);
+    snprintf(nameBuffer, sizeof(nameBuffer), "DRV_T%d", derivThreshold);
     name = nameBuffer;
-    
-    signalBuffer = new int[windowSize];
-    memset(signalBuffer, 0, windowSize * sizeof(int));
 }
 
-DerivativeDetector::~DerivativeDetector()
-{
-    delete[] signalBuffer;
-}
+DerivativeDetector::~DerivativeDetector() = default;
 
-bool DerivativeDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp)
+bool DerivativeDetector::detect(int ppgSignal,
+                                float pressureSignal,
+                                unsigned long timestamp)
 {
-    
-    signalBuffer[bufferIdx] = ppgSignal;
-    bufferIdx = (bufferIdx + 1) % windowSize;
-    if (bufferCount < windowSize)
-    {
-        bufferCount++;
+    if (!hasPrev) {
+        prevSample = ppgSignal;
+        prevDerivative = 0;
+        hasPrev = true;
         return false;
     }
 
-    int oldestIdx = bufferIdx;
-    int derivative = ppgSignal - signalBuffer[oldestIdx];
+    int derivative = ppgSignal - prevSample;
 
-    // Minimum time between pulses using heart rate range
-    unsigned long minInterval = hrRange.isValid ? hrRange.minInterval : MIN_BEAT_INTERVALS_MS;
-    if (derivative > threshold && 
-        (lastBeatTime == 0 || (timestamp - lastBeatTime) > minInterval))
-    {
-        recordDetection(pressureSignal, timestamp);
-        return true;
+    unsigned long minInterval =
+        hrRange.isValid ? hrRange.minInterval : MIN_BEAT_INTERVALS_MS;
+
+    bool timeOK =
+        (lastBeatTime == 0) ||
+        (timestamp - lastBeatTime >= minInterval);
+
+    bool isRisingEdge =
+        (prevDerivative > 0) &&
+        (derivative <= 0) &&
+        (prevDerivative >= threshold) &&
+        timeOK;
+
+    if (isRisingEdge) {
+        recordDetection(pressureSignal, timestamp); // this sets lastBeatTime
     }
 
-    return false;
+    prevDerivative = derivative;
+    prevSample = ppgSignal;
+
+    return isRisingEdge;
 }
 
 void DerivativeDetector::reset()
 {
-    memset(signalBuffer, 0, windowSize * sizeof(int));
-    bufferIdx = 0;
-    bufferCount = 0;
-    
     detectionCount = 0;
     lastBeatTime = 0;
     intervalCount = 0;
     memset(detections, 0, sizeof(detections));
     memset(recentIntervals, 0, sizeof(recentIntervals));
+
+    prevSample = 0;
+    prevDerivative = 0;
+    hasPrev = false;
 }
+
 
 // EnsembleDetector implementation
 EnsembleDetector::EnsembleDetector(const char* name, int requiredVotes)

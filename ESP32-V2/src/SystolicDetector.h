@@ -111,22 +111,22 @@ public:
 };
 
 // Derivative-based detection (detects rising edge)
-class DerivativeDetector : public SystolicDetector
-{
-private:
-    int windowSize;
-    int threshold;
-    int *signalBuffer;
-    int bufferIdx;
-    int bufferCount;
-    
-    char nameBuffer[64];
-
+class DerivativeDetector : public SystolicDetector {
 public:
-    DerivativeDetector(int window, int derivThreshold);
-    ~DerivativeDetector();
+    explicit DerivativeDetector(int derivThreshold);
+    ~DerivativeDetector() override;
+
     bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
     void reset() override;
+
+private:
+    int threshold;
+
+    int prevSample = 0;
+    int prevDerivative = 0;
+    bool hasPrev = false;
+
+    char nameBuffer[64];
 };
 
 // Voting ensemble that combines multiple detectors
