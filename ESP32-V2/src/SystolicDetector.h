@@ -1,6 +1,6 @@
 #ifndef PULSE_DETECTOR_H
 #define PULSE_DETECTOR_H
-
+#include "EnvelopeSmoother.h"
 #include "config.h"
 
 struct DetectionRecord
@@ -128,6 +128,38 @@ private:
 
     char nameBuffer[64];
 };
+
+class EnvelopeSystolicDetector : public SystolicDetector
+{
+private:
+    EnvelopeDetector envelopeDetector;
+
+    int windowSize;
+
+    float* envelopeHistory;
+    float* pressureHistory;
+    unsigned long* timeHistory;
+
+    int historyIdx;
+    int historyCount;
+
+    bool detectionMade;
+    char nameBuffer[64];
+
+    // Analysis helpers
+    bool isEnvelopeFlat(int lookback);
+    bool isEnvelopeIncreasing(int lookback);
+    float calculateSlope(int samples);
+    float calculateIntercept(float slope, int idx);
+
+public:
+    explicit EnvelopeSystolicDetector(int window);
+    ~EnvelopeSystolicDetector() override;
+
+    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    void reset() override;
+};
+
 
 // Voting ensemble that combines multiple detectors
 class EnsembleDetector : public SystolicDetector

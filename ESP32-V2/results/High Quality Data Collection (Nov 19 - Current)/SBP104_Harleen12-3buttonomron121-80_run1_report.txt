@@ -1,0 +1,438 @@
+=== Blood Pressure Measurement Report - Run #1 ===
+
+Baseline HR: 85.9 BPM
+Valid interval: 401-1306 ms
+
+*** ENSEMBLE RESULT ***
+Systolic: 119 mmHg
+Confidence: 0.209
+95% CI: [103 - 134] mmHg
+Agreement: 11/13 detectors
+
+MAP: 95 mmHg
+Est. Diastolic: 83 mmHg
+Oscillometric MAP Systolic: -1 mmHg
+Oscillometric MAP Diastolic: -1 mmHg
+
+--- Top Detectors ---
+
+Detector                           Best (mmHg) Confidence  
+------------------------------------------------------------
+BL_W50_T2.5_D10                    117         0.613
+BL_W50_T3.0_D10                    117         0.613
+BL_W50_T3.5_D10                    117         0.613
+BL_W40_T2.5_D10                    115         0.572
+BL_W40_T3.0_D10                    115         0.572
+BL_W40_T3.5_D10                    115         0.572
+BL_W50_T2.0_D10                    117         0.539
+BL_W40_T2.0_D10                    115         0.533
+BL_W30_T2.5_D5                     145         0.420
+BL_W30_T2.5_D10                    119         0.350
+
+
+=== DETAILED DETECTOR RESULTS ===
+
+Detector: BL_W50_T2.5_D10
+Best Detection: 117 mmHg (confidence: 0.613)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     117         0.613
+  2     115         0.424
+  3     114         0.325
+  4     110         0.176
+  5     106         0.050
+  6     139         0.010
+
+Detector: BL_W50_T3.0_D10
+Best Detection: 117 mmHg (confidence: 0.613)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     117         0.613
+  2     115         0.424
+  3     114         0.325
+  4     110         0.176
+  5     106         0.050
+  6     139         0.010
+
+Detector: BL_W50_T3.5_D10
+Best Detection: 117 mmHg (confidence: 0.613)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     117         0.613
+  2     115         0.424
+  3     114         0.325
+  4     110         0.176
+  5     106         0.050
+  6     139         0.010
+
+Detector: BL_W40_T2.5_D10
+Best Detection: 115 mmHg (confidence: 0.572)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     115         0.572
+  2     117         0.344
+  3     110         0.177
+  4     106         0.050
+  5     139         0.010
+
+Detector: BL_W40_T3.0_D10
+Best Detection: 115 mmHg (confidence: 0.572)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     115         0.572
+  2     117         0.344
+  3     110         0.177
+  4     106         0.050
+  5     139         0.010
+
+Detector: BL_W40_T3.5_D10
+Best Detection: 115 mmHg (confidence: 0.572)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     115         0.572
+  2     117         0.344
+  3     110         0.177
+  4     105         0.050
+  5     139         0.010
+
+Detector: BL_W50_T2.0_D10
+Best Detection: 117 mmHg (confidence: 0.539)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     117         0.539
+  2     115         0.395
+  3     114         0.326
+  4     110         0.177
+  5     92          0.050
+  6     158         0.010
+  7     139         0.010
+  8     106         0.010
+
+Detector: BL_W40_T2.0_D10
+Best Detection: 115 mmHg (confidence: 0.533)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     115         0.533
+  2     117         0.303
+  3     110         0.178
+  4     84          0.050
+  5     158         0.010
+  6     139         0.010
+  7     106         0.010
+  8     92          0.010
+
+Detector: BL_W30_T2.5_D5
+Best Detection: 145 mmHg (confidence: 0.420)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     145         0.420
+  2     143         0.219
+  3     85          0.050
+  4     139         0.010
+  5     106         0.010
+
+Detector: BL_W30_T2.5_D10
+Best Detection: 119 mmHg (confidence: 0.350)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     119         0.350
+  2     117         0.192
+  3     85          0.050
+  4     139         0.010
+  5     115         0.010
+  6     106         0.010
+
+Detector: BL_W30_T3.0_D10
+Best Detection: 119 mmHg (confidence: 0.350)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     119         0.350
+  2     117         0.192
+  3     106         0.050
+  4     139         0.010
+  5     115         0.010
+
+Detector: BL_W30_T3.5_D10
+Best Detection: 119 mmHg (confidence: 0.350)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     119         0.350
+  2     117         0.192
+  3     105         0.050
+  4     139         0.010
+  5     115         0.010
+
+Detector: BL_W30_T2.0_D5
+Best Detection: 145 mmHg (confidence: 0.308)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     145         0.308
+  2     161         0.262
+  3     143         0.180
+  4     85          0.050
+  5     158         0.010
+  6     139         0.010
+  7     115         0.010
+  8     106         0.010
+  9     92          0.010
+
+Detector: BL_W30_T2.0_D10
+Best Detection: 119 mmHg (confidence: 0.288)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     119         0.288
+  2     161         0.262
+  3     117         0.179
+  4     85          0.050
+  5     158         0.010
+  6     139         0.010
+  7     115         0.010
+  8     106         0.010
+  9     92          0.010
+
+Detector: BL_W20_T2.0_D10
+Best Detection: 162 mmHg (confidence: 0.262)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     162         0.262
+  2     117         0.179
+  3     87          0.176
+  4     85          0.050
+  5     161         0.010
+  6     139         0.010
+  7     115         0.010
+  8     106         0.010
+
+Detector: BL_W30_T3.0_D5
+Best Detection: 145 mmHg (confidence: 0.262)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     145         0.262
+  2     106         0.050
+  3     143         0.010
+
+Detector: BL_W30_T3.5_D5
+Best Detection: 145 mmHg (confidence: 0.262)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     145         0.262
+  2     105         0.050
+  3     143         0.010
+
+Detector: BL_W20_T2.0_D5
+Best Detection: 145 mmHg (confidence: 0.219)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     145         0.219
+  2     87          0.176
+  3     85          0.050
+  4     161         0.010
+  5     139         0.010
+  6     115         0.010
+  7     106         0.010
+
+Detector: BL_W20_T2.5_D10
+Best Detection: 117 mmHg (confidence: 0.192)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     117         0.192
+  2     106         0.050
+  3     162         0.010
+  4     139         0.010
+  5     115         0.010
+
+Detector: BL_W20_T3.0_D10
+Best Detection: 117 mmHg (confidence: 0.192)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     117         0.192
+  2     105         0.050
+  3     162         0.010
+  4     139         0.010
+  5     115         0.010
+
+Detector: BL_W20_T3.5_D10
+Best Detection: 117 mmHg (confidence: 0.192)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     117         0.192
+  2     105         0.050
+  3     162         0.010
+  4     139         0.010
+  5     115         0.010
+
+Detector: BL_W20_T2.5_D5
+Best Detection: 106 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     106         0.050
+  2     145         0.010
+  3     115         0.010
+
+Detector: BL_W20_T3.0_D5
+Best Detection: 105 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     105         0.050
+  2     145         0.010
+  3     115         0.010
+
+Detector: BL_W20_T3.5_D5
+Best Detection: 105 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     105         0.050
+  2     145         0.010
+  3     115         0.010
+
+Detector: BL_W40_T2.0_D5
+Best Detection: 84 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     84          0.050
+  2     158         0.010
+  3     139         0.010
+  4     115         0.010
+  5     106         0.010
+  6     92          0.010
+
+Detector: BL_W40_T2.5_D5
+Best Detection: 106 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     106         0.050
+  2     139         0.010
+
+Detector: BL_W40_T3.0_D5
+Best Detection: 106 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     106         0.050
+  2     139         0.010
+
+Detector: BL_W40_T3.5_D5
+Best Detection: 105 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     105         0.050
+  2     139         0.010
+
+Detector: BL_W50_T2.0_D5
+Best Detection: 92 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     92          0.050
+  2     158         0.010
+  3     139         0.010
+  4     115         0.010
+  5     106         0.010
+
+Detector: BL_W50_T2.5_D5
+Best Detection: 106 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     106         0.050
+  2     139         0.010
+  3     115         0.010
+
+Detector: BL_W50_T3.0_D5
+Best Detection: 106 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     106         0.050
+  2     139         0.010
+
+Detector: BL_W50_T3.5_D5
+Best Detection: 106 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     106         0.050
+
+Detector: Env_W15
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+
+Detector: Env_W20
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+
+Detector: Env_W25
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+
+Detector: Env_W30
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+
+Detector: Env_W35
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+
+Detector: Env_W40
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+
+Detector: Env_W45
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+
+Detector: Env_W50
+Best Detection: 146 mmHg (confidence: 0.050)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     146         0.050
+

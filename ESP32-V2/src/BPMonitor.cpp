@@ -3,11 +3,12 @@
 #include <stdio.h>
 #include <cmath>
 #include <iostream>
+#include <algorithm>
 
 BPMonitor::BPMonitor()
     : state(IDLE), systolic(0), maxPressure(0), startTime(0),
       detectorCount(0), baselineBeatCount(0), hrCalculated(false),
-      pressureHistoryIdx(0), pressureHistoryCount(0), lastPressureDerivative(0)
+      pressureHistoryIdx(0), pressureHistoryCount(0), lastPressureDerivative(0), lastPeakTime(0)
 {
     for (int i = 0; i < MAX_DETECTORS; i++)
     {
@@ -38,6 +39,7 @@ void BPMonitor::reset()
     pressureHistoryIdx = 0;
     pressureHistoryCount = 0;
     lastPressureDerivative = 0;
+    lastPeakTime = 0;
     memset(baselineBeats, 0, sizeof(baselineBeats));
     memset(pressureHistory, 0, sizeof(pressureHistory));
     
@@ -62,49 +64,37 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
         pressureHistoryCount++;
     }
     
-    // Need full buffer to detect oscillations
     if (pressureHistoryCount < PRESSURE_HISTORY_SIZE)
     {
         return false;
     }
     
-    // Remove linear trend by looking at local deviations
-    // Calculate mean of the window
-    float mean = 0;
-    for (int i = 0; i < PRESSURE_HISTORY_SIZE; i++)
-    {
-        mean += pressureHistory[i];
-    }
-    mean /= PRESSURE_HISTORY_SIZE;
-    
-    // Get detrended value (deviation from mean)
+    // Get indices
     int currentIdx = (pressureHistoryIdx - 1 + PRESSURE_HISTORY_SIZE) % PRESSURE_HISTORY_SIZE;
-    float currentDetrended = pressureHistory[currentIdx] - mean;
-    
-    // Get previous detrended value
     int prevIdx = (currentIdx - 1 + PRESSURE_HISTORY_SIZE) % PRESSURE_HISTORY_SIZE;
-    float prevDetrended = pressureHistory[prevIdx] - mean;
+    int prevPrevIdx = (prevIdx - 1 + PRESSURE_HISTORY_SIZE) % PRESSURE_HISTORY_SIZE;
     
-    // Detect peak: was positive, now negative (zero crossing from above)
-    bool isPeak = (prevDetrended > 0.1f && currentDetrended < 0);
+    float prev = pressureHistory[prevIdx];
+    float prevPrev = pressureHistory[prevPrevIdx];
+    
+    bool isPeak = (prev > prevPrev) && (prev > currentPressure);
     
     if (isPeak)
     {
-        // Record beat with minimum interval (300-1500ms = 40-200 BPM)
+        // CRITICAL FIX: Check interval from LAST DETECTED PEAK, not last accepted beat
         if (baselineBeatCount == 0)
         {
-            // First beat
-            if (baselineBeatCount < MAX_BASELINE_BEATS)
-            {
-                baselineBeats[baselineBeatCount++] = timestamp;
-                return true;
-            }
+            // First beat - always accept
+            baselineBeats[baselineBeatCount++] = timestamp;
+            lastPeakTime = timestamp;  // Track this separately
+            return true;
         }
         else
         {
-            unsigned long interval = timestamp - baselineBeats[baselineBeatCount-1];
+            // Measure from the LAST PEAK (accepted or not)
+            unsigned long interval = timestamp - lastPeakTime;
+            lastPeakTime = timestamp;  // Update for next comparison
             
-            // Only accept beats in physiological range (40-200 BPM = 300-1500ms)
             if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)
             {
                 if (baselineBeatCount < MAX_BASELINE_BEATS)
@@ -121,14 +111,30 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
 
 void BPMonitor::calculateBaselineHeartRate(unsigned long currentTime)
 {
-    // Calculate average interval
+    
+    // Calculate average interval, skipping invalid ones
     unsigned long totalInterval = 0;
+    int validIntervalCount = 0;
+    
     for (int i = 1; i < baselineBeatCount; i++)
     {
-        totalInterval += baselineBeats[i] - baselineBeats[i-1];
+        unsigned long interval = baselineBeats[i] - baselineBeats[i-1];
+        
+        // Skip obviously wrong intervals
+        if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)
+        {
+            totalInterval += interval;
+            validIntervalCount++;
+        }
     }
     
-    float avgInterval = (float)totalInterval / (baselineBeatCount - 1);
+    // Need at least one valid interval to calculate
+    if (validIntervalCount == 0)
+    {
+        return; // Can't calculate baseline with no valid intervals
+    }
+    
+    float avgInterval = (float)totalInterval / validIntervalCount;
     float avgBPM = 60000.0f / avgInterval;
     
     // Account for delay
@@ -292,6 +298,13 @@ float BPMonitor::getBestSystolic(float* outConfidence) const
 }
 
 HeartRateRange BPMonitor::getBaselineHeartRate() const { return baselineHR; }
+
+const unsigned long* BPMonitor::getBaselineBeats(int& outCount) const
+{
+    outCount = baselineBeatCount;
+    return baselineBeats;
+}
+
 
 float BPMonitor::getBaselineBPM() const
 {

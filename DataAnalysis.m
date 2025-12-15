@@ -192,14 +192,33 @@ end
         else
             fprintf('  AUS_PULSE_HEARD not found\n');
         end
+
+        % Extract SBP from filename if present
+        runInfo.hasSBPReference = false;
+        runInfo.sbpReference = NaN;
+        
+        [~, fname, ~] = fileparts(filename);
+        tokens = regexp(fname, '^SBP(\d+)_', 'tokens');
+        if ~isempty(tokens)
+            runInfo.hasSBPReference = true;
+            runInfo.sbpReference = str2double(tokens{1}{1});
+            fprintf('  *** FOUND SBP REFERENCE: %d mmHg from filename ***\n', runInfo.sbpReference);
+        end
         
         % Get detector columns (exclude system columns and AUS_PULSE_HEARD)
         % Get detector columns (exclude system columns and AUS_PULSE_HEARD)
         allCols = runData.Properties.VariableNames;
-        excludeCols = {'Time', 'Timestamp', 'Pressure', 'PPGSignal', 'PPG', 'rawPPGSignal', ...
+        excludeCols = {'Time', 'Timestamp', 'Pressure', 'PPGSignal', 'PPG', 'rawPPGSignal', 'BaselineBeat', ...
               'AUS_PULSE_HEARD', 'Osc_Amp', 'Osc_SBP', 'MAP', 'Osc_DBP', 'Est_DBP', 'EnsembleSystolic'};
         detectorCols = allCols(~ismember(allCols, excludeCols));
         runInfo.detectors = detectorCols;
+        if ismember('BaselineBeat', runData.Properties.VariableNames)
+            runInfo.baselineBeat = runData.BaselineBeat;
+            runInfo.hasBaselineBeat = true;
+        else
+            runInfo.baselineBeat = [];
+            runInfo.hasBaselineBeat = false;
+        end
         runInfo.post = allCols(ismember(allCols, {'Osc_SBP', 'MAP', 'Osc_DBP', 'Est_DBP', 'EnsembleSystolic'}));
         
         % NEW: Store the actual values from the last row
@@ -247,12 +266,22 @@ end
                 detection.detected = true;
                 
                 % Calculate error from ground truth if available
+                % Calculate error from ground truth if available
                 if runInfo.hasGroundTruth
                     detection.error = detection.pressure - runInfo.groundTruthPressure;
                     detection.absError = abs(detection.error);
                 else
                     detection.error = NaN;
                     detection.absError = NaN;
+                end
+                
+                % Calculate error from SBP reference if available
+                if runInfo.hasSBPReference
+                    detection.sbpError = detection.pressure - runInfo.sbpReference;
+                    detection.sbpAbsError = abs(detection.sbpError);
+                else
+                    detection.sbpError = NaN;
+                    detection.sbpAbsError = NaN;
                 end
             else
                 % All zeros - no detection
@@ -285,6 +314,10 @@ fprintf('Found %d unique detectors across all runs.\n', length(allDetectors));
 runsWithGroundTruth = sum(cellfun(@(r) r.hasGroundTruth, allRuns));
 fprintf('Found %d run(s) with ground truth data.\n\n', runsWithGroundTruth);
 
+% Count runs with SBP reference
+runsWithSBPRef = sum(cellfun(@(r) r.hasSBPReference, allRuns));
+fprintf('Found %d run(s) with SBP reference in filename.\n\n', runsWithSBPRef);
+
 %% Create Main Tabbed Figure
 screenSize = get(0, 'ScreenSize');
 figWidth = 1600;
@@ -307,6 +340,12 @@ createComparisonTab(compTab, allRuns, allDetectors);
 if runsWithGroundTruth > 0
     gtTab = uitab(tabGroup, 'Title', 'Ground Truth Analysis');
     createGroundTruthTab(gtTab, allRuns, allDetectors);
+end
+
+% Create SBP reference error analysis tab if applicable
+if runsWithSBPRef > 0
+    sbpTab = uitab(tabGroup, 'Title', 'SBP Reference Analysis');
+    createSBPReferenceTab(sbpTab, allRuns, allDetectors);
 end
 
 blTab = uitab(tabGroup, 'Title', 'Baseline Analysis');
@@ -387,6 +426,22 @@ function createFileTab(parentTab, runInfo)
     h1 = plot(runInfo.time, runInfo.pressure, 'b-', 'LineWidth', 1.5);
     ylabel('Pressure (mmHg)', 'FontSize', 12);
     ax.YColor = 'b';
+
+    % --- Plot Baseline Beat markers on pressure ---
+    if isfield(runInfo, 'hasBaselineBeat') && runInfo.hasBaselineBeat
+        beatIdx = find(runInfo.baselineBeat == 1);
+    
+        if ~isempty(beatIdx)
+            beatTimes = runInfo.time(beatIdx);
+            beatPressures = runInfo.pressure(beatIdx);
+    
+            h_baseline = plot(beatTimes, beatPressures, 'ks', ...
+                'MarkerSize', 5, ...
+                'MarkerFaceColor', 'k', ...
+                'LineWidth', 1.2);
+        end
+    end
+
     
     % Plot ground truth marker if available
     hasGroundTruth = false;
@@ -403,14 +458,14 @@ function createFileTab(parentTab, runInfo)
     if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
         hasAusPulseData = true;
         fprintf('  Plotting %d stethoscope pulses\n', length(runInfo.pulseHeardIndices));
-        
+
         pulseTimes = runInfo.time(runInfo.pulseHeardIndices);
         pulsePressures = runInfo.pressure(runInfo.pulseHeardIndices);
         pulsePPG = runInfo.ppg(runInfo.pulseHeardIndices);
-        
+
         % Plot X markers on pressure (right axis)
         h_pulse_pressure = plot(pulseTimes, pulsePressures, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
-        
+
         % Switch to left axis for PPG markers
         yyaxis left
         plot(pulseTimes, pulsePPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
@@ -418,7 +473,7 @@ function createFileTab(parentTab, runInfo)
             pulseRawPPG = runInfo.rawPPG(runInfo.pulseHeardIndices);
             plot(pulseTimes, pulseRawPPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
         end
-        
+
         % Switch back to right axis
         yyaxis right
     end
@@ -468,6 +523,12 @@ function createFileTab(parentTab, runInfo)
         legendHandles(end+1) = h_pulse_pressure;
         legendLabels{end+1} = sprintf('Stethoscope');
     end
+
+    % Add baseline beat legend entry
+    if exist('h_baseline', 'var')
+        legendHandles(end+1) = h_baseline;
+        legendLabels{end+1} = 'Baseline Pressure Beat';
+    end
     
     % Plot detector lines
     for j = 1:length(sortedDetectors)
@@ -477,13 +538,13 @@ function createFileTab(parentTab, runInfo)
             detection = runInfo.detections(detName);
             detTime = detection.time;
             detPressure = detection.pressure;
-            
+
             if detection.detected && ~isnan(detTime)
                 xline(detTime, '--', 'Color', colors(j,:), 'LineWidth', 1.5);
                 h = plot(detTime, detPressure, 'o', 'Color', colors(j,:), ...
                     'MarkerSize', 10, 'LineWidth', 2);
                 legendHandles(end+1) = h;
-                
+
                 % Add error to legend if ground truth available
                 if hasGroundTruth
                     legendLabels{end+1} = sprintf('%s: %.1f mmHg (Δ=%.1f)', ...
@@ -883,4 +944,77 @@ function shortLabels = shortenDetectorNames(detectors)
         % Replace periods with underscores (if any)
         shortLabels{i} = label;
     end
+end
+
+function createSBPReferenceTab(parentTab, allRuns, allDetectors)
+    % Filter to runs with SBP reference
+    runsWithSBP = allRuns(cellfun(@(r) r.hasSBPReference, allRuns));
+    numRuns = length(runsWithSBP);
+    numDetectors = length(allDetectors);
+    
+    if numRuns == 0
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No runs with SBP reference in filename found.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    % Extract errors
+    errors = nan(numDetectors, numRuns);
+    absErrors = nan(numDetectors, numRuns);
+    
+    for i = 1:numRuns
+        for j = 1:numDetectors
+            detName = allDetectors{j};
+            if isKey(runsWithSBP{i}.detections, detName)
+                detection = runsWithSBP{i}.detections(detName);
+                if detection.detected
+                    errors(j, i) = detection.sbpError;
+                    absErrors(j, i) = detection.sbpAbsError;
+                end
+            end
+        end
+    end
+    
+    % Calculate statistics
+    meanError = mean(errors, 2, 'omitnan');
+    stdError = std(errors, 0, 2, 'omitnan');
+    meanAbsError = mean(absErrors, 2, 'omitnan');
+    stdAbsError = std(absErrors, 0, 2, 'omitnan');
+    
+    % Create axes - only 2 plots now
+    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
+    ax4 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
+    
+    % Plot 1: Absolute error (top)
+    axes(ax2);
+    errorbar(1:numDetectors, meanAbsError, stdAbsError, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
+    grid on;
+    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+    title('Mean Absolute Error from SBP Reference ± Std Dev', 'FontSize', 14);
+    shortLabels = shortenDetectorNames(allDetectors);
+    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
+    
+    % Plot 2: Ranking by absolute error (bottom)
+    axes(ax4);
+    [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
+    sortedDetectors = allDetectors(sortIdx);
+    bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
+    grid on;
+    xlabel('Detector (Ranked)', 'FontSize', 12);
+    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+    title('Detector Ranking by Accuracy (vs SBP Reference)', 'FontSize', 14);
+    shortLabels = shortenDetectorNames(sortedDetectors);
+    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
+    
+    % Print summary
+    fprintf('\n=== SBP REFERENCE ANALYSIS SUMMARY ===\n');
+    fprintf('Analyzed %d runs with SBP reference in filename\n\n', numRuns);
+    fprintf('Detector Rankings by Mean Absolute Error:\n');
+    for i = 1:min(numDetectors, 10)
+        idx = sortIdx(i);
+        fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
+            i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
+    end
+    fprintf('\n');
 end

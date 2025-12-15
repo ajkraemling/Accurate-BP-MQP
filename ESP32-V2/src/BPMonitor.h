@@ -53,7 +53,7 @@ private:
     int detectorCount;
 
     // Baseline heart rate tracking
-    static const int MAX_BASELINE_BEATS = 10;
+    static const int MAX_BASELINE_BEATS = 200;
     unsigned long baselineBeats[MAX_BASELINE_BEATS];
     int baselineBeatCount;
     HeartRateRange baselineHR;
@@ -66,6 +66,7 @@ private:
     int pressureHistoryIdx;
     int pressureHistoryCount;
     float lastPressureDerivative;
+    unsigned long int lastPeakTime = 0;
     
     // Optional external filter to configure
     PPGBandpassFilter* externalFilter;
@@ -103,6 +104,7 @@ public:
     // Get baseline heart rate info
     HeartRateRange getBaselineHeartRate() const;
     float getBaselineBPM() const;
+    const unsigned long* getBaselineBeats(int& outCount) const;
 
     // MAP 
     float getMAP();

@@ -434,12 +434,15 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         out << originalData.headers[i];
         if (i < originalData.headers.size() - 1) out << ",";
     }
-    out << ",Osc_Amp,Osc_SBP,MAP,Osc_DBP,Est_DBP,EnsembleSystolic";
+    out << ",BaselineBeat,Osc_Amp,Osc_SBP,MAP,Osc_DBP,Est_DBP,EnsembleSystolic";
     for (int i = 0; i < monitor.getDetectorCount(); i++) {
         out << "," << monitor.getDetector(i)->getName();
     }
     out << "\n";
     
+    int baselineBeatCount = 0;
+    const unsigned long* baselineBeats = monitor.getBaselineBeats(baselineBeatCount);
+
     // Output rows with detector results
     for (const auto& row : outputRows) {
         
@@ -454,11 +457,25 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
             out << "," << row.ausPulseHeard;
         }
 
+        int isBaselineBeat = 0;
+        for (int b = 0; b < baselineBeatCount; b++) {
+            if (row.time == baselineBeats[b]) {
+                isBaselineBeat = 1;
+                break;
+            }
+        }
+
         BPResult ensembleResult = monitor.getEnsembleResult();
         float DBP = (3.0f * row.mapValue - ensembleResult.systolic) / 2.0f;
 
-        out << "," << row.oscAmplitude << "," << row.oscSystolic 
-            << "," << row.mapValue << "," << row.oscDiastolic << "," << DBP << "," << ensembleResult.systolic;
+        out << "," << isBaselineBeat
+            << "," << row.oscAmplitude
+            << "," << row.oscSystolic
+            << "," << row.mapValue
+            << "," << row.oscDiastolic
+            << "," << DBP
+            << "," << ensembleResult.systolic;
+
         
         // Output detector results - these are captured at the time of processing
         for (int i = 0; i < monitor.getDetectorCount(); i++) {
@@ -514,31 +531,78 @@ void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runN
     struct DetectorResult {
         std::string name;
         DetectionRecord best;
+        int detectorIndex;
     };
     
-    std::vector<DetectorResult> results;
-    for (int i = 0; i < monitor.getDetectorCount(); i++) {
-        DetectorResult result;
-        result.name = monitor.getDetector(i)->getName();
-        result.best = monitor.getDetector(i)->getBestDetection();
-        results.push_back(result);
+    // Collect all detector results
+    int detectorCount = monitor.getDetectorCount();
+    DetectorResult* results = new DetectorResult[detectorCount];
+    
+    for (int i = 0; i < detectorCount; i++) {
+        results[i].name = monitor.getDetector(i)->getName();
+        results[i].best = monitor.getDetector(i)->getBestDetection();
+        results[i].detectorIndex = i;
     }
     
-    std::sort(results.begin(), results.end(), 
-              [](const DetectorResult& a, const DetectorResult& b) {
-                  return a.best.confidence > b.best.confidence;
-              });
+    // Sort by confidence (bubble sort)
+    for (int i = 0; i < detectorCount - 1; i++) {
+        for (int j = 0; j < detectorCount - i - 1; j++) {
+            if (results[j].best.confidence < results[j + 1].best.confidence) {
+                DetectorResult temp = results[j];
+                results[j] = results[j + 1];
+                results[j + 1] = temp;
+            }
+        }
+    }
     
+    // Print top 10 detectors
     int count = 0;
-    for (const auto& result : results) {
-        if (count >= 10) break;
-        if (result.best.confidence > 0) {
-            out << std::left << std::setw(35) << result.name 
-                << std::setw(12) << std::fixed << std::setprecision(0) << result.best.pressure 
-                << std::setprecision(3) << result.best.confidence << "\n";
+    for (int i = 0; i < detectorCount && count < 10; i++) {
+        if (results[i].best.confidence > 0) {
+            out << std::left << std::setw(35) << results[i].name 
+                << std::setw(12) << std::fixed << std::setprecision(0) << results[i].best.pressure 
+                << std::setprecision(3) << results[i].best.confidence << "\n";
             count++;
         }
     }
+    
+    // Now output detailed detector results with top 10 readings for each
+    out << "\n\n=== DETAILED DETECTOR RESULTS ===\n\n";
+    
+    for (int i = 0; i < detectorCount; i++) {
+        if (results[i].best.confidence > 0) {
+            SystolicDetector* detector = monitor.getDetector(results[i].detectorIndex);
+            
+            out << "Detector: " << results[i].name << "\n";
+            out << "Best Detection: " << std::fixed << std::setprecision(0) << results[i].best.pressure 
+                << " mmHg (confidence: " << std::setprecision(3) << results[i].best.confidence << ")\n";
+            
+            // Get top detections using existing method
+            DetectionRecord topDetections[20]; // MAX_DETECTIONS
+            int actualCount = 0;
+            detector->getTopDetections(topDetections, 20, &actualCount);
+            
+            if (actualCount > 0) {
+                // Output top 10 readings (already sorted by getTopDetections)
+                out << "Top 10 readings:\n";
+                out << "  " << std::left << std::setw(6) << "Rank" << std::setw(12) << "Pressure" 
+                    << std::setw(12) << "Confidence" << "\n";
+                out << "  " << std::string(30, '-') << "\n";
+                
+                int maxRank = (actualCount < 10) ? actualCount : 10;
+                for (int rank = 0; rank < maxRank; rank++) {
+                    if (topDetections[rank].confidence > 0) {
+                        out << "  " << std::left << std::setw(6) << (rank + 1)
+                            << std::setw(12) << std::fixed << std::setprecision(0) << topDetections[rank].pressure 
+                            << std::setprecision(3) << topDetections[rank].confidence << "\n";
+                    }
+                }
+            }
+            out << "\n";
+        }
+    }
+    
+    delete[] results;
 }
 
 // Process one file with multiple runs
@@ -683,6 +747,19 @@ int main(int argc, char* argv[]) {
                 monitor.addDetector(det);
             }
         }
+    }
+
+    
+    int drv_th[] = {15, 20, 25, 30, 35, 40, 45, 50};
+
+    for (int w : drv_th) {
+        auto* det = new EnvelopeSystolicDetector(w);
+        allocatedDetectors.push_back(det);
+        monitor.addDetector(det);
+
+        // auto* det = new DerivativeDetector(t);
+        // allocatedDetectors.push_back(det);
+        // monitor.addDetector(det);
     }
 
     std::cout << "Using " << monitor.getDetectorCount() << " detectors\n";

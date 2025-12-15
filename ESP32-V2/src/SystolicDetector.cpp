@@ -67,15 +67,11 @@ void SystolicDetector::recordDetection(float pressure, unsigned long timestamp)
 
 void SystolicDetector::updateConfidenceScores(unsigned long currentTimestamp)
 {
-    // Go through each previous detection and update its confidence
-    // based on how many subsequent beats followed at consistent intervals
-    
-    for (int i = 0; i < detectionCount - 1; i++)  // -1 because current is already added
+    for (int i = 0; i < detectionCount - 1; i++)
     {
         DetectionRecord& det = detections[i];
         
         // Count CONSECUTIVE beats that came after this detection
-        // A beat only counts if it's within expected range (40-200 BPM = 300-1500ms)
         int beatsAfter = 0;
         unsigned long expectedNextBeat = det.timestamp;
         
@@ -83,48 +79,46 @@ void SystolicDetector::updateConfidenceScores(unsigned long currentTimestamp)
         {
             unsigned long interval = detections[j].timestamp - expectedNextBeat;
             
-            // Check if this beat is within reasonable BPM range
-            if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)  // 40-180 BPM
+            if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)
             {
                 beatsAfter++;
                 expectedNextBeat = detections[j].timestamp;
             }
             else
             {
-                // Beat was skipped or too irregular, stop counting
                 break;
             }
         }
         det.subsequentBeats = beatsAfter;
         
-        // Calculate confidence based on:
-        // 1. How early this detection was (lower pressure index = earlier = better)
-        // 2. How many beats followed it
-        // 3. How consistent those intervals are
+        if (beatsAfter == 0) {
+            det.confidence = 0.01f;
+            continue;  // Skip to next detection
+        }
         
-        float earlyBonus = 1.0f + (0.1f * (detectionCount - i - 1) / (float)detectionCount);
-        if (i == 0) earlyBonus = 1.75f;  // Big bonus for first detection
-        else if (i == 1) earlyBonus = 1.35f;
-        else if (i == 2) earlyBonus = 1.15f;
+        float earlyBonus = 1.0f;
+        if (beatsAfter > 0) {  // Only give early bonus if beats actually followed
+            if (i == 0) earlyBonus = 1.5f;
+            else if (i == 1) earlyBonus = 1.25f;
+            else if (i == 2) earlyBonus = 1.1f;
+            else earlyBonus = 1.0f + (0.05f * (detectionCount - i - 1) / (float)detectionCount);
+        }
         
-        // Subsequent beats bonus
-        float beatBonus = 0.2f + (beatsAfter * 0.15f);
+        // Subsequent beats bonus - this is the PRIMARY score
+        float beatBonus = 0.1f + (beatsAfter * 0.15f);
         if (beatBonus > 1.0f) beatBonus = 1.0f;
         
         // Consistency bonus
         float consistencyBonus = calculateIntervalConsistency(i);
         
-        // Combine factors
+        // Combine: beat count is most important, then consistency, then position
         det.confidence = beatBonus * consistencyBonus * earlyBonus;
-        
-        // Cap at 1.0
-        // if (det.confidence > 1.0f) det.confidence = 1.0f;
     }
     
-    // Current detection starts with low confidence until beats follow
+    // Current detection starts with very low confidence
     if (detectionCount > 0)
     {
-        detections[detectionCount - 1].confidence = 0.1f;
+        detections[detectionCount - 1].confidence = 0.05f;
     }
 }
 
@@ -392,6 +386,174 @@ void DerivativeDetector::reset()
     prevSample = 0;
     prevDerivative = 0;
     hasPrev = false;
+}
+
+EnvelopeSystolicDetector::EnvelopeSystolicDetector(int window)
+    : SystolicDetector(nullptr),
+      windowSize(window),
+      historyIdx(0),
+      historyCount(0),
+      detectionMade(false)
+{
+    envelopeHistory = new float[windowSize];
+    pressureHistory = new float[windowSize];
+    timeHistory = new unsigned long[windowSize];
+
+    snprintf(nameBuffer, sizeof(nameBuffer), "Env_W%d", windowSize);
+    name = nameBuffer;
+
+    reset();
+}
+
+EnvelopeSystolicDetector::~EnvelopeSystolicDetector()
+{
+    delete[] envelopeHistory;
+    delete[] pressureHistory;
+    delete[] timeHistory;
+}
+
+bool EnvelopeSystolicDetector::isEnvelopeFlat(int lookback)
+{
+    if (historyCount < lookback) return false;
+
+    float mean = 0.0f;
+    for (int i = 0; i < lookback; i++) {
+        int idx = (historyIdx - 1 - i + windowSize) % windowSize;
+        mean += envelopeHistory[idx];
+    }
+    mean /= lookback;
+
+    float var = 0.0f;
+    for (int i = 0; i < lookback; i++) {
+        int idx = (historyIdx - 1 - i + windowSize) % windowSize;
+        float d = envelopeHistory[idx] - mean;
+        var += d * d;
+    }
+    var /= lookback;
+
+    constexpr float VAR_THRESH = 2.0f;
+    constexpr float AMP_THRESH = 10.0f;
+
+    return (var < VAR_THRESH && mean < AMP_THRESH);
+}
+
+bool EnvelopeSystolicDetector::isEnvelopeIncreasing(int lookback)
+{
+    if (historyCount < lookback) return false;
+
+    int rises = 0;
+    for (int i = 1; i < lookback; i++) {
+        int curr = (historyIdx - i + windowSize) % windowSize;
+        int prev = (historyIdx - i - 1 + windowSize) % windowSize;
+        if (envelopeHistory[curr] > envelopeHistory[prev])
+            rises++;
+    }
+
+    return rises >= (lookback * 2) / 3;
+}
+
+float EnvelopeSystolicDetector::calculateSlope(int samples)
+{
+    float sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+    for (int i = 0; i < samples; i++) {
+        int idx = (historyIdx - samples + i + windowSize) % windowSize;
+        float x = pressureHistory[idx];
+        float y = envelopeHistory[idx];
+
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumX2 += x * x;
+    }
+
+    float denom = samples * sumX2 - sumX * sumX;
+    if (fabs(denom) < 1e-3f) return 0.0f;
+
+    return (samples * sumXY - sumX * sumY) / denom;
+}
+
+
+float EnvelopeSystolicDetector::calculateIntercept(float slope, int idx) {
+    // y = slope * x + intercept
+    // intercept = y - slope * x
+    float y = envelopeHistory[idx];
+    float x = pressureHistory[idx];
+    return y - slope * x;
+}
+
+bool EnvelopeSystolicDetector::detect(int ppgSignal,
+                                      float pressureSignal,
+                                      unsigned long timestamp)
+{
+    float env = envelopeDetector.update((float)ppgSignal);
+
+    envelopeHistory[historyIdx] = env;
+    pressureHistory[historyIdx] = pressureSignal;
+    timeHistory[historyIdx] = timestamp;
+
+    historyIdx = (historyIdx + 1) % windowSize;
+    if (historyCount < windowSize)
+        historyCount++;
+
+    if (historyCount < windowSize || detectionMade)
+        return false;
+
+    constexpr int FLAT_WIN = 10;
+    constexpr int RISE_WIN = 8;
+    constexpr float ENV_PRESENT = 5.0f;
+    constexpr float MIN_SLOPE = 0.1f;
+    constexpr float MAX_DELTA = 40.0f;
+
+    bool flat = isEnvelopeFlat(FLAT_WIN);
+    bool rising = isEnvelopeIncreasing(RISE_WIN);
+
+    int currIdx = (historyIdx - 1 + windowSize) % windowSize;
+
+    if (!flat || !rising || envelopeHistory[currIdx] < ENV_PRESENT)
+        return false;
+
+    float slope = calculateSlope(RISE_WIN);
+
+    float systolic = pressureSignal;   // default fallback
+
+    if (slope > MIN_SLOPE) {
+        float intercept = envelopeHistory[currIdx]
+                        - slope * pressureHistory[currIdx];
+
+        float est = -intercept / slope;
+
+        if (est > pressureSignal && est < pressureSignal + MAX_DELTA)
+            systolic = est;
+    }
+
+    recordDetection(systolic, timestamp);
+    detectionMade = true;
+    return true;
+}
+
+
+
+void EnvelopeSystolicDetector::reset()
+{
+    envelopeDetector.reset();
+
+    historyIdx = 0;
+    historyCount = 0;
+    detectionMade = false;
+
+    memset(envelopeHistory, 0, windowSize * sizeof(float));
+    memset(pressureHistory, 0, windowSize * sizeof(float));
+    memset(timeHistory, 0, windowSize * sizeof(unsigned long));
+
+    lastSignal = 0;
+    lastPulseState = false;
+    detectionCount = 0;
+    lastBeatTime = 0;
+    intervalCount = 0;
+
+    memset(detections, 0, sizeof(detections));
+    memset(recentIntervals, 0, sizeof(recentIntervals));
 }
 
 
