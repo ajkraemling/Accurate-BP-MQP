@@ -83,6 +83,7 @@ public:
     
     // Get best detection(s)
     DetectionRecord getBestDetection() const;
+    int softmaxNormalize(DetectionRecord* output, int maxCount, float temperature) const;
     void getTopDetections(DetectionRecord* output, int maxCount, int* actualCount) const;
 };
 
@@ -151,6 +152,9 @@ private:
     bool isEnvelopeIncreasing(int lookback);
     float calculateSlope(int samples);
     float calculateIntercept(float slope, int idx);
+    int getAdaptiveFlatWindow();
+    int getAdaptiveRiseWindow();
+    float getAdaptiveEnvelopeThreshold();
 
 public:
     explicit EnvelopeSystolicDetector(int window);
@@ -159,22 +163,4 @@ public:
     bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
     void reset() override;
 };
-
-
-// Voting ensemble that combines multiple detectors
-class EnsembleDetector : public SystolicDetector
-{
-private:
-    static const int MAX_DETECTORS = 10;
-    SystolicDetector *detectors[MAX_DETECTORS];
-    int detectorCount;
-    int votesRequired;
-
-public:
-    EnsembleDetector(const char* name, int requiredVotes);
-    void addDetector(SystolicDetector *detector);
-    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
-    void reset() override;
-};
-
 #endif

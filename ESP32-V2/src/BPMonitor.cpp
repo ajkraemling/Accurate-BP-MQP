@@ -322,113 +322,102 @@ float BPMonitor::getBaselineBPM() const
 
 BPResult BPMonitor::getEnsembleResult() const
 {
-    BPResult result;
+    BPResult result{};
     result.systolic = 0;
     result.confidence = 0;
     result.confidenceIntervalLow = 0;
     result.confidenceIntervalHigh = 0;
     result.agreementCount = 0;
     result.totalDetectors = 0;
-    
-    // Collect all valid detections
+
+    // Temporary structure for all hypotheses from all detectors
     struct DetectorReading {
         float pressure;
-        float confidence;
+        float weight;  // softmax-normalized confidence
     };
-    
-    DetectorReading readings[MAX_DETECTORS];
+
+    DetectorReading readings[MAX_DETECTORS * MAX_TOP];
     int readingCount = 0;
-    
+
+    // --- 1. Collect all normalized hypotheses from detectors ---
     for (int i = 0; i < detectorCount; i++)
     {
-        DetectionRecord best = detectors[i]->getBestDetection();
-        if (best.pressure > 0 && best.confidence > 0.3f)  // Minimum confidence threshold
+        DetectionRecord top[MAX_TOP];
+        int actualCount = detectors[i]->softmaxNormalize(top, MAX_TOP, 0.1f); // T=0.1 for sharpening
+
+        for (int j = 0; j < actualCount; j++)
         {
-            readings[readingCount].pressure = best.pressure;
-            readings[readingCount].confidence = best.confidence;
+            if (top[j].pressure <= 0) continue;  // ignore invalid readings
+
+            readings[readingCount].pressure = top[j].pressure;
+            readings[readingCount].weight = top[j].confidence;  // already normalized
             readingCount++;
         }
     }
-    
-    result.totalDetectors = readingCount;
-    
+
+    result.totalDetectors = detectorCount;
+
     if (readingCount == 0)
-    {
-        return result;
-    }
-    
-    // Calculate confidence-weighted mean
+        return result;  // no valid readings
+
+    // --- 2. Compute weighted mean (systolic) ---
     float weightedSum = 0;
     float totalWeight = 0;
-    
     for (int i = 0; i < readingCount; i++)
     {
-        float weight = readings[i].confidence * readings[i].confidence;  // Square for emphasis
-        weightedSum += readings[i].pressure * weight;
-        totalWeight += weight;
+        weightedSum += readings[i].pressure * readings[i].weight;
+        totalWeight += readings[i].weight;
     }
-    
     result.systolic = weightedSum / totalWeight;
-    
-    // Calculate weighted standard deviation
+
+    // --- 3. Compute weighted standard deviation ---
     float weightedVariance = 0;
     for (int i = 0; i < readingCount; i++)
     {
-        float weight = readings[i].confidence * readings[i].confidence;
         float diff = readings[i].pressure - result.systolic;
-        weightedVariance += weight * diff * diff;
+        weightedVariance += readings[i].weight * diff * diff;
     }
     float weightedStdDev = sqrt(weightedVariance / totalWeight);
-    
-    // Count detectors within ±1 std dev (this is our "agreement")
+
+    // --- 4. Count agreement (within ±1 std dev) ---
     int agreementCount = 0;
     float agreementWeightSum = 0;
-    
     for (int i = 0; i < readingCount; i++)
     {
         float diff = readings[i].pressure - result.systolic;
         if (diff >= -weightedStdDev && diff <= weightedStdDev)
         {
             agreementCount++;
-            agreementWeightSum += readings[i].confidence;
+            agreementWeightSum += readings[i].weight;
         }
     }
-    
     result.agreementCount = agreementCount;
-    
-    // Calculate ensemble confidence based on:
-    // 1. Agreement ratio (what fraction agree within 1 std dev)
-    // 2. Average confidence of agreeing detectors
-    // 3. Sample size (more detectors = more confidence)
-    
+
+    // --- 5. Compute ensemble confidence ---
     float agreementRatio = (float)agreementCount / readingCount;
-    float avgAgreementConfidence = agreementWeightSum / agreementCount;
-    float sampleSizeFactor = 1.0f - exp(-readingCount / 20.0f);  // Saturates at ~60 detectors
-    
-    result.confidence = agreementRatio * avgAgreementConfidence * sampleSizeFactor;
-    
-    // Cap at 1.0
+    float avgAgreementWeight = agreementWeightSum / agreementCount;
+
+    // Sample size factor saturates around 60 detectors
+    float sampleSizeFactor = 1.0f - expf(-detectorCount / 20.0f);
+
+    result.confidence = agreementRatio * avgAgreementWeight * sampleSizeFactor;
     if (result.confidence > 1.0f) result.confidence = 1.0f;
-    
-    // Calculate 95% confidence interval (±1.96 standard errors)
-    // Standard error = std dev / sqrt(effective N)
-    float effectiveN = totalWeight;  // Use sum of squared weights as effective sample size
-    float standardError = weightedStdDev / sqrt(effectiveN);
-    
-    // 95% CI: ±1.96 SE, but widen if low confidence
-    float ciMultiplier = 1.96f * (2.0f - result.confidence);  // Wider CI for low confidence
-    
+
+    // --- 6. Compute 95% confidence interval ---
+    float effectiveN = totalWeight;  // sum of softmax weights
+    float standardError = weightedStdDev / sqrtf(effectiveN);
+
+    float ciMultiplier = 1.96f * (2.0f - result.confidence);  // widen CI for low confidence
     result.confidenceIntervalLow = result.systolic - (ciMultiplier * standardError);
     result.confidenceIntervalHigh = result.systolic + (ciMultiplier * standardError);
-    
-    // Ensure CI is at least ±2 mmHg (measurement precision limit)
-    float minHalfWidth = 2.0f;
-    float currentHalfWidth = (result.confidenceIntervalHigh - result.confidenceIntervalLow) / 2.0f;
-    if (currentHalfWidth < minHalfWidth)
+
+    // --- 7. Enforce minimum ±2 mmHg CI ---
+    float halfWidth = (result.confidenceIntervalHigh - result.confidenceIntervalLow) / 2.0f;
+    if (halfWidth < 2.0f)
     {
-        result.confidenceIntervalLow = result.systolic - minHalfWidth;
-        result.confidenceIntervalHigh = result.systolic + minHalfWidth;
+        result.confidenceIntervalLow = result.systolic - 2.0f;
+        result.confidenceIntervalHigh = result.systolic + 2.0f;
     }
-    
+
     return result;
 }

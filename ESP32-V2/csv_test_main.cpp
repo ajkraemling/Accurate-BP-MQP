@@ -750,16 +750,16 @@ int main(int argc, char* argv[]) {
     }
 
     
-    int drv_th[] = {15, 20, 25, 30, 35, 40, 45, 50};
+    int drv_th[] = {10, 15, 20, 25, 30, 35, 40, 45, 50};
 
     for (int w : drv_th) {
-        auto* det = new EnvelopeSystolicDetector(w);
-        allocatedDetectors.push_back(det);
-        monitor.addDetector(det);
+        auto* env_det = new EnvelopeSystolicDetector(w);
+        allocatedDetectors.push_back(env_det);
+        monitor.addDetector(env_det);
 
-        // auto* det = new DerivativeDetector(t);
-        // allocatedDetectors.push_back(det);
-        // monitor.addDetector(det);
+        auto* der_det = new DerivativeDetector(w/5);
+        allocatedDetectors.push_back(der_det);
+        monitor.addDetector(der_det);
     }
 
     std::cout << "Using " << monitor.getDetectorCount() << " detectors\n";

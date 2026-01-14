@@ -213,6 +213,35 @@ DetectionRecord SystolicDetector::getBestDetection() const
     return best;
 }
 
+// Returns the number of normalized detections written to output
+int SystolicDetector::softmaxNormalize(DetectionRecord* output, int maxCount, float temperature) const
+{
+    if (detectionCount == 0 || maxCount == 0)
+        return 0;
+
+    // Determine how many to copy
+    int count = detectionCount < maxCount ? detectionCount : maxCount;
+
+    // compute unnormalized softmax weights
+    float weights[MAX_DETECTIONS];  // temp array
+    float sumExp = 0.0f;
+    for (int i = 0; i < count; i++)
+    {
+        weights[i] = powf(detections[i].confidence, 4);
+        sumExp += weights[i];
+    }
+
+    // normalize and write output
+    for (int i = 0; i < count; i++)
+    {
+        output[i] = detections[i];
+        output[i].confidence = weights[i] / sumExp;
+    }
+
+    return count;
+}
+
+
 void SystolicDetector::getTopDetections(DetectionRecord* output, int maxCount, int* actualCount) const
 {
     // Simple bubble sort to get top N
@@ -482,57 +511,112 @@ float EnvelopeSystolicDetector::calculateIntercept(float slope, int idx) {
     return y - slope * x;
 }
 
-bool EnvelopeSystolicDetector::detect(int ppgSignal,
-                                      float pressureSignal,
-                                      unsigned long timestamp)
-{
-    float env = envelopeDetector.update((float)ppgSignal);
+int EnvelopeSystolicDetector::getAdaptiveFlatWindow() {
+    // Use hrRange from parent class
+    if (!hrRange.isValid) return 10; // Default
+    
+    // Use the median of the range to estimate typical beat period
+    unsigned long typicalInterval = (hrRange.minInterval + hrRange.maxInterval) / 2;
+    
+    // Convert to samples: interval is in ms, sample rate is 50Hz (20ms/sample)
+    float samplesPerBeat = typicalInterval / SAMPLE_RATE_MS;
+    
+    // Want 1.5 beats worth of flat baseline
+    int adaptiveWindow = (int)(samplesPerBeat * 1.5f);
+    
+    // Clamp to reasonable bounds
+    if (adaptiveWindow < 5) adaptiveWindow = 5;
+    if (adaptiveWindow > 25) adaptiveWindow = 25;
+    
+    return adaptiveWindow;
+}
 
+int EnvelopeSystolicDetector::getAdaptiveRiseWindow() {
+    if (!hrRange.isValid) return 8; // Default
+    
+    unsigned long typicalInterval = (hrRange.minInterval + hrRange.maxInterval) / 2;
+    float samplesPerBeat = typicalInterval / SAMPLE_RATE_MS;
+    
+    // Want 1.0 beat worth of rising data
+    int adaptiveWindow = (int)(samplesPerBeat * 1.0f);
+    
+    // Clamp to reasonable bounds
+    if (adaptiveWindow < 5) adaptiveWindow = 5;
+    if (adaptiveWindow > 20) adaptiveWindow = 20;
+    
+    return adaptiveWindow;
+}
+
+float EnvelopeSystolicDetector::getAdaptiveEnvelopeThreshold() {
+    // Calculate signal strength from recent history
+    if (historyCount < 10) return 5.0f; // Default
+    
+    // Find max of recent envelope values
+    float maxRecent = 0.0f;
+    int loopMax = 20;
+    if (loopMax > historyCount) loopMax = historyCount;
+    for (int i = 0; i < loopMax ; i++) {
+        int idx = (historyIdx - 1 - i + windowSize) % windowSize;
+        if (envelopeHistory[idx] > maxRecent) {
+            maxRecent = envelopeHistory[idx];
+        }
+    }
+    
+    // Threshold is 10-15% of max observed amplitude
+    float adaptiveThresh = maxRecent * 0.15f;
+    
+    // Clamp to reasonable bounds
+    if (adaptiveThresh < 2.0f) adaptiveThresh = 2.0f;
+    if (adaptiveThresh > 20.0f) adaptiveThresh = 20.0f;
+    
+    return adaptiveThresh;
+}
+
+bool EnvelopeSystolicDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp) {
+    float env = envelopeDetector.update((float)ppgSignal);
+    
     envelopeHistory[historyIdx] = env;
     pressureHistory[historyIdx] = pressureSignal;
     timeHistory[historyIdx] = timestamp;
-
+    
     historyIdx = (historyIdx + 1) % windowSize;
-    if (historyCount < windowSize)
-        historyCount++;
-
-    if (historyCount < windowSize || detectionMade)
+    if (historyCount < windowSize) historyCount++;
+    
+    if (historyCount < windowSize || detectionMade) return false;
+    
+    // Use adaptive windows and thresholds
+    int flatWin = getAdaptiveFlatWindow();
+    int riseWin = getAdaptiveRiseWindow();
+    float envThreshold = getAdaptiveEnvelopeThreshold();
+    
+    bool flat = isEnvelopeFlat(flatWin);
+    bool rising = isEnvelopeIncreasing(riseWin);
+    
+    int currIdx = (historyIdx - 1 + windowSize) % windowSize;
+    
+    if (!flat || !rising || envelopeHistory[currIdx] < envThreshold) {
         return false;
-
-    constexpr int FLAT_WIN = 10;
-    constexpr int RISE_WIN = 8;
-    constexpr float ENV_PRESENT = 5.0f;
+    }
+    
+    // Slope calculation
     constexpr float MIN_SLOPE = 0.1f;
     constexpr float MAX_DELTA = 40.0f;
-
-    bool flat = isEnvelopeFlat(FLAT_WIN);
-    bool rising = isEnvelopeIncreasing(RISE_WIN);
-
-    int currIdx = (historyIdx - 1 + windowSize) % windowSize;
-
-    if (!flat || !rising || envelopeHistory[currIdx] < ENV_PRESENT)
-        return false;
-
-    float slope = calculateSlope(RISE_WIN);
-
-    float systolic = pressureSignal;   // default fallback
-
+    
+    float slope = calculateSlope(riseWin);
+    float systolic = pressureSignal;
+    
     if (slope > MIN_SLOPE) {
-        float intercept = envelopeHistory[currIdx]
-                        - slope * pressureHistory[currIdx];
-
+        float intercept = envelopeHistory[currIdx] - slope * pressureHistory[currIdx];
         float est = -intercept / slope;
-
-        if (est > pressureSignal && est < pressureSignal + MAX_DELTA)
+        if (est > pressureSignal && est < pressureSignal + MAX_DELTA) {
             systolic = est;
+        }
     }
-
+    
     recordDetection(systolic, timestamp);
     detectionMade = true;
     return true;
 }
-
-
 
 void EnvelopeSystolicDetector::reset()
 {
@@ -554,57 +638,4 @@ void EnvelopeSystolicDetector::reset()
 
     memset(detections, 0, sizeof(detections));
     memset(recentIntervals, 0, sizeof(recentIntervals));
-}
-
-
-// EnsembleDetector implementation
-EnsembleDetector::EnsembleDetector(const char* name, int requiredVotes)
-    : SystolicDetector(name), detectorCount(0), votesRequired(requiredVotes)
-{
-    for (int i = 0; i < MAX_DETECTORS; i++)
-    {
-        detectors[i] = nullptr;
-    }
-}
-
-void EnsembleDetector::addDetector(SystolicDetector *detector)
-{
-    if (detectorCount < MAX_DETECTORS)
-    {
-        detectors[detectorCount++] = detector;
-    }
-}
-
-bool EnsembleDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp)
-{
-    int votes = 0;
-    
-    for (int i = 0; i < detectorCount; i++)
-    {
-        if (detectors[i]->detect(ppgSignal, pressureSignal, timestamp))
-        {
-            votes++;
-        }
-    }
-    
-    if (votes >= votesRequired)
-    {
-        recordDetection(pressureSignal, timestamp);
-        return true;
-    }
-    return false;
-}
-
-void EnsembleDetector::reset()
-{
-    detectionCount = 0;
-    lastBeatTime = 0;
-    intervalCount = 0;
-    memset(detections, 0, sizeof(detections));
-    memset(recentIntervals, 0, sizeof(recentIntervals));
-    
-    for (int i = 0; i < detectorCount; i++)
-    {
-        detectors[i]->reset();
-    }
 }

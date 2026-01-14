@@ -4,12 +4,13 @@ Baseline HR: 73.6 BPM
 Valid interval: 453-1500 ms
 
 *** ENSEMBLE RESULT ***
-Systolic: 0 mmHg
-Confidence: 0.000
-95% CI: [0 - 0] mmHg
-Agreement: 0/0 detectors
+Systolic: 98 mmHg
+Confidence: 0.166
+95% CI: [75 - 122] mmHg
+Agreement: 101/50 detectors
 
 MAP: 128 mmHg
+Est. Diastolic: 143 mmHg
 Oscillometric MAP Systolic: -1 mmHg
 Oscillometric MAP Diastolic: -1 mmHg
 
@@ -176,6 +177,14 @@ Top 10 readings:
   2     47          0.050
   3     135         0.010
   4     133         0.010
+
+Detector: DRV_T2
+Best Detection: 140 mmHg (confidence: 0.262)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     140         0.262
+  2     136         0.050
 
 Detector: BL_W20_T2.0_D5
 Best Detection: 136 mmHg (confidence: 0.219)
@@ -347,59 +356,52 @@ Top 10 readings:
   3     134         0.010
   4     122         0.010
 
-Detector: Env_W15
-Best Detection: 131 mmHg (confidence: 0.050)
+Detector: DRV_T3
+Best Detection: 136 mmHg (confidence: 0.050)
 Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
-  1     131         0.050
-
-Detector: Env_W20
-Best Detection: 131 mmHg (confidence: 0.050)
-Top 10 readings:
-  Rank  Pressure    Confidence  
-  ------------------------------
-  1     131         0.050
+  1     136         0.050
 
 Detector: Env_W25
-Best Detection: 131 mmHg (confidence: 0.050)
+Best Detection: 123 mmHg (confidence: 0.050)
 Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
-  1     131         0.050
+  1     123         0.050
 
 Detector: Env_W30
-Best Detection: 131 mmHg (confidence: 0.050)
+Best Detection: 123 mmHg (confidence: 0.050)
 Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
-  1     131         0.050
+  1     123         0.050
 
 Detector: Env_W35
-Best Detection: 131 mmHg (confidence: 0.050)
+Best Detection: 123 mmHg (confidence: 0.050)
 Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
-  1     131         0.050
+  1     123         0.050
 
 Detector: Env_W40
-Best Detection: 131 mmHg (confidence: 0.050)
+Best Detection: 123 mmHg (confidence: 0.050)
 Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
-  1     131         0.050
+  1     123         0.050
 
 Detector: Env_W45
-Best Detection: 131 mmHg (confidence: 0.050)
+Best Detection: 123 mmHg (confidence: 0.050)
 Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
-  1     131         0.050
+  1     123         0.050
 
 Detector: Env_W50
-Best Detection: 131 mmHg (confidence: 0.050)
+Best Detection: 123 mmHg (confidence: 0.050)
 Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
-  1     131         0.050
+  1     123         0.050
 

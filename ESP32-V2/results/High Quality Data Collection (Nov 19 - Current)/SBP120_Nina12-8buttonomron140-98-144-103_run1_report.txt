@@ -4,13 +4,13 @@ Baseline HR: 88.4 BPM
 Valid interval: 392-1239 ms
 
 *** ENSEMBLE RESULT ***
-Systolic: 108 mmHg
-Confidence: 0.096
-95% CI: [106 - 110] mmHg
-Agreement: 4/4 detectors
+Systolic: 121 mmHg
+Confidence: 0.104
+95% CI: [114 - 128] mmHg
+Agreement: 121/50 detectors
 
 MAP: 113 mmHg
-Est. Diastolic: 116 mmHg
+Est. Diastolic: 110 mmHg
 Oscillometric MAP Systolic: -1 mmHg
 Oscillometric MAP Diastolic: -1 mmHg
 
@@ -18,19 +18,163 @@ Oscillometric MAP Diastolic: -1 mmHg
 
 Detector                           Best (mmHg) Confidence  
 ------------------------------------------------------------
+DRV_T9                             107         1.430
+DRV_T10                            107         1.430
+DRV_T2                             124         1.352
+DRV_T7                             107         1.348
+DRV_T8                             107         1.348
+DRV_T4                             109         1.346
+DRV_T5                             109         1.346
+DRV_T6                             109         1.346
+DRV_T3                             109         1.339
 BL_W40_T2.0_D5                     108         0.531
-BL_W40_T2.0_D10                    108         0.531
-BL_W50_T2.0_D5                     108         0.531
-BL_W50_T2.0_D10                    108         0.531
-BL_W20_T2.0_D10                    125         0.262
-BL_W20_T2.5_D10                    125         0.262
-BL_W30_T2.0_D5                     125         0.262
-BL_W30_T2.0_D10                    125         0.262
-BL_W30_T2.5_D5                     125         0.262
-BL_W30_T2.5_D10                    125         0.262
 
 
 === DETAILED DETECTOR RESULTS ===
+
+Detector: DRV_T9
+Best Detection: 107 mmHg (confidence: 1.430)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     107         1.430
+  2     105         1.346
+  3     103         1.342
+  4     100         1.337
+  5     99          1.332
+  6     97          1.328
+  7     94          1.125
+  8     92          0.923
+  9     90          0.723
+  10    88          0.524
+
+Detector: DRV_T10
+Best Detection: 107 mmHg (confidence: 1.430)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     107         1.430
+  2     105         1.346
+  3     103         1.342
+  4     100         1.337
+  5     99          1.332
+  6     97          1.328
+  7     94          1.125
+  8     92          0.923
+  9     90          0.723
+  10    88          0.524
+
+Detector: DRV_T2
+Best Detection: 124 mmHg (confidence: 1.352)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     124         1.352
+  2     122         1.349
+  3     119         1.345
+  4     117         1.342
+  5     115         1.339
+  6     112         1.336
+  7     110         1.332
+  8     109         1.329
+  9     107         1.326
+  10    105         1.323
+
+Detector: DRV_T7
+Best Detection: 107 mmHg (confidence: 1.348)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     107         1.348
+  2     105         1.343
+  3     103         1.339
+  4     100         1.335
+  5     99          1.330
+  6     97          1.326
+  7     94          1.123
+  8     92          0.922
+  9     90          0.722
+  10    88          0.523
+
+Detector: DRV_T8
+Best Detection: 107 mmHg (confidence: 1.348)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     107         1.348
+  2     105         1.343
+  3     103         1.339
+  4     100         1.335
+  5     99          1.330
+  6     97          1.326
+  7     94          1.123
+  8     92          0.922
+  9     90          0.722
+  10    88          0.523
+
+Detector: DRV_T4
+Best Detection: 109 mmHg (confidence: 1.346)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     109         1.346
+  2     107         1.342
+  3     105         1.338
+  4     103         1.334
+  5     100         1.331
+  6     99          1.327
+  7     97          1.323
+  8     94          1.121
+  9     92          0.921
+  10    115         0.880
+
+Detector: DRV_T5
+Best Detection: 109 mmHg (confidence: 1.346)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     109         1.346
+  2     107         1.342
+  3     105         1.338
+  4     103         1.334
+  5     100         1.331
+  6     99          1.327
+  7     97          1.323
+  8     94          1.121
+  9     92          0.921
+  10    115         0.880
+
+Detector: DRV_T6
+Best Detection: 109 mmHg (confidence: 1.346)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     109         1.346
+  2     107         1.342
+  3     105         1.338
+  4     103         1.334
+  5     100         1.331
+  6     99          1.327
+  7     97          1.323
+  8     94          1.121
+  9     92          0.921
+  10    115         0.880
+
+Detector: DRV_T3
+Best Detection: 109 mmHg (confidence: 1.339)
+Top 10 readings:
+  Rank  Pressure    Confidence  
+  ------------------------------
+  1     109         1.339
+  2     107         1.336
+  3     105         1.332
+  4     103         1.329
+  5     100         1.326
+  6     99          1.323
+  7     97          1.319
+  8     94          1.119
+  9     124         1.000
+  10    92          0.919
 
 Detector: BL_W40_T2.0_D5
 Best Detection: 108 mmHg (confidence: 0.531)
@@ -338,20 +482,6 @@ Top 10 readings:
   Rank  Pressure    Confidence  
   ------------------------------
   1     125         0.050
-
-Detector: Env_W15
-Best Detection: 143 mmHg (confidence: 0.050)
-Top 10 readings:
-  Rank  Pressure    Confidence  
-  ------------------------------
-  1     143         0.050
-
-Detector: Env_W20
-Best Detection: 143 mmHg (confidence: 0.050)
-Top 10 readings:
-  Rank  Pressure    Confidence  
-  ------------------------------
-  1     143         0.050
 
 Detector: Env_W25
 Best Detection: 143 mmHg (confidence: 0.050)
