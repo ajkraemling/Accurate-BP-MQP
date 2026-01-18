@@ -209,7 +209,7 @@ end
         % Get detector columns (exclude system columns and AUS_PULSE_HEARD)
         allCols = runData.Properties.VariableNames;
         excludeCols = {'Time', 'Timestamp', 'Pressure', 'PPGSignal', 'PPG', 'rawPPGSignal', 'BaselineBeat', ...
-              'AUS_PULSE_HEARD', 'Osc_Amp', 'Osc_SBP', 'MAP', 'Osc_DBP', 'Est_DBP', 'EnsembleSystolic'};
+              'AUS_PULSE_HEARD', 'Osc_Amp', 'MAP', 'Osc_DBP', 'Est_DBP'};
         detectorCols = allCols(~ismember(allCols, excludeCols));
         runInfo.detectors = detectorCols;
         if ismember('BaselineBeat', runData.Properties.VariableNames)
@@ -679,7 +679,6 @@ function createComparisonTab(parentTab, allRuns, allDetectors)
     set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels,'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
     ylim([0 110]);
 end
-
 function createGroundTruthTab(parentTab, allRuns, allDetectors)
     % Filter to runs with ground truth
     runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
@@ -724,7 +723,6 @@ function createGroundTruthTab(parentTab, allRuns, allDetectors)
     axes(ax2);
     errorbar(1:numDetectors, meanAbsError, stdAbsError, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
     grid on;
-    % xlabel('Detector', 'FontSize', 12);
     ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
     title('Mean Absolute Error from Ground Truth ± Std Dev', 'FontSize', 14);
     shortLabels = shortenDetectorNames(allDetectors);
@@ -734,12 +732,18 @@ function createGroundTruthTab(parentTab, allRuns, allDetectors)
     axes(ax4);
     [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
     sortedDetectors = allDetectors(sortIdx);
+    sortedStdAbsError = stdAbsError(sortIdx);  % Sort the std deviations to match
+    
     bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
+    hold on;
+    errorbar(1:numDetectors, sortedMAE, sortedStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
+    hold off;
+    
     grid on;
     xlabel('Detector (Ranked)', 'FontSize', 12);
     ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
     title('Detector Ranking by Accuracy', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(allDetectors);
+    shortLabels = shortenDetectorNames(sortedDetectors);
     set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
     
     % Print summary
@@ -999,7 +1003,13 @@ function createSBPReferenceTab(parentTab, allRuns, allDetectors)
     axes(ax4);
     [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
     sortedDetectors = allDetectors(sortIdx);
+    sortedStdAbsError = stdAbsError(sortIdx);  % Sort the std deviations to match
+    
     bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
+    hold on;
+    errorbar(1:numDetectors, sortedMAE, sortedStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
+    hold off;
+    
     grid on;
     xlabel('Detector (Ranked)', 'FontSize', 12);
     ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);

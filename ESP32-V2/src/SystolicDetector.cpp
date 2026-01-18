@@ -64,58 +64,71 @@ void SystolicDetector::recordDetection(float pressure, unsigned long timestamp)
     // Update confidence for all previous detections
     updateConfidenceScores(timestamp);
 }
-
 void SystolicDetector::updateConfidenceScores(unsigned long currentTimestamp)
 {
+    // Resolve interval limits once
+    unsigned long minInterval = MIN_BEAT_INTERVALS_MS;
+    unsigned long maxInterval = MAX_BEAT_INTERVALS_MS;
+
+    if (hrRange.isValid)
+    {
+        minInterval = hrRange.minInterval;
+        maxInterval = hrRange.maxInterval;
+    }
+
     for (int i = 0; i < detectionCount - 1; i++)
     {
         DetectionRecord& det = detections[i];
-        
-        // Count CONSECUTIVE beats that came after this detection
+
         int beatsAfter = 0;
         unsigned long expectedNextBeat = det.timestamp;
-        
+
         for (int j = i + 1; j < detectionCount; j++)
         {
             unsigned long interval = detections[j].timestamp - expectedNextBeat;
-            
-            if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)
+
+            // Skip early false detections
+            if (interval < minInterval)
             {
-                beatsAfter++;
-                expectedNextBeat = detections[j].timestamp;
+                continue;
             }
-            else
+
+            // Too late → rhythm broken
+            if (interval > maxInterval)
             {
                 break;
             }
+
+            // Valid beat
+            beatsAfter++;
+            expectedNextBeat = detections[j].timestamp;
         }
+
         det.subsequentBeats = beatsAfter;
-        
-        if (beatsAfter == 0) {
+
+        // No supporting beats → almost zero confidence
+        if (beatsAfter == 0)
+        {
             det.confidence = 0.01f;
-            continue;  // Skip to next detection
+            continue;
         }
-        
-        float earlyBonus = 1.0f;
-        if (beatsAfter > 0) {  // Only give early bonus if beats actually followed
-            if (i == 0) earlyBonus = 1.5f;
-            else if (i == 1) earlyBonus = 1.25f;
-            else if (i == 2) earlyBonus = 1.1f;
-            else earlyBonus = 1.0f + (0.05f * (detectionCount - i - 1) / (float)detectionCount);
-        }
-        
-        // Subsequent beats bonus - this is the PRIMARY score
-        float beatBonus = 0.1f + (beatsAfter * 0.15f);
-        if (beatBonus > 1.0f) beatBonus = 1.0f;
-        
-        // Consistency bonus
+
+        // Primary score: number of subsequent beats
+        float beatBonus = 0.1f + (beatsAfter * 0.08f);  // slower growth
+        if (beatBonus > 1.2f) beatBonus = 1.2f;
+
+        // Rhythm consistency
         float consistencyBonus = calculateIntervalConsistency(i);
-        
-        // Combine: beat count is most important, then consistency, then position
+        if (consistencyBonus > 1.0f) consistencyBonus = 1.0f;
+
+        // Mild early bonus (tie-breaker only)
+        float positionFactor = (float)(detectionCount - i - 1) / (float)detectionCount;
+        float earlyBonus = 1.0f; //+ (0.1f * positionFactor);  // max ~1.1
+
         det.confidence = beatBonus * consistencyBonus * earlyBonus;
     }
-    
-    // Current detection starts with very low confidence
+
+    // Most recent detection has no future context yet
     if (detectionCount > 0)
     {
         detections[detectionCount - 1].confidence = 0.05f;
@@ -124,74 +137,81 @@ void SystolicDetector::updateConfidenceScores(unsigned long currentTimestamp)
 
 float SystolicDetector::calculateIntervalConsistency(int detectionIndex)
 {
-    // Look at CONSECUTIVE intervals AFTER this detection
-    // Stop if a beat is skipped (interval out of range)
     if (detectionIndex >= detectionCount - 1)
     {
-        return 0.5f;  // No intervals after this one yet
+        return 0.7f;  // No future intervals yet
     }
-    
-    // Collect consecutive intervals from this detection forward
-    int intervalCount = 0;
-    unsigned long intervals[MAX_DETECTIONS];
-    
-    for (int i = detectionIndex; i < detectionCount - 1; i++)
+
+    // Resolve interval limits
+    unsigned long minInterval = MIN_BEAT_INTERVALS_MS;
+    unsigned long maxInterval = MAX_BEAT_INTERVALS_MS;
+
+    if (hrRange.isValid)
     {
-        unsigned long interval = detections[i + 1].timestamp - detections[i].timestamp;
-        
-        // Only count if within expected heart rate range
-        bool inRange = false;
-        if (hrRange.isValid) {
-            inRange = (interval >= hrRange.minInterval && interval <= hrRange.maxInterval);
-        } else {
-            // Fallback to default (40-180 BPM = 300-1500ms)
-            inRange = (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS);
-        }
-        
-        if (inRange) {
-            intervals[intervalCount++] = interval;
-        } else {
-            break;  // Skip detected, stop counting
-        }
+        minInterval = hrRange.minInterval;
+        maxInterval = hrRange.maxInterval;
     }
-    
+
+    unsigned long intervals[MAX_DETECTIONS];
+    int intervalCount = 0;
+
+    unsigned long lastValidTimestamp = detections[detectionIndex].timestamp;
+
+    for (int i = detectionIndex + 1; i < detectionCount; i++)
+    {
+        unsigned long interval = detections[i].timestamp - lastValidTimestamp;
+
+        // Skip early false detections
+        if (interval < minInterval)
+        {
+            continue;
+        }
+
+        // Too late → rhythm broken
+        if (interval > maxInterval)
+        {
+            break;
+        }
+
+        // Valid interval
+        intervals[intervalCount++] = interval;
+        lastValidTimestamp = detections[i].timestamp;
+
+        if (intervalCount >= MAX_DETECTIONS)
+            break;
+    }
+
+    // Not enough data to judge consistency
     if (intervalCount < 2)
     {
-        return 0.7f;  // Need at least 2 consecutive intervals
+        return 0.7f;
     }
-    
-    // Calculate mean
-    float mean = 0;
+
+    // Mean interval
+    float mean = 0.0f;
     for (int i = 0; i < intervalCount; i++)
     {
         mean += intervals[i];
     }
     mean /= intervalCount;
-    
-    // Calculate coefficient of variation
-    float variance = 0;
+
+    // Standard deviation
+    float variance = 0.0f;
     for (int i = 0; i < intervalCount; i++)
     {
         float diff = intervals[i] - mean;
         variance += diff * diff;
     }
-    float stdDev = sqrt(variance / intervalCount);
+
+    float stdDev = sqrtf(variance / intervalCount);
     float cv = stdDev / mean;
-    
+
     // Convert CV to consistency score
-    float consistencyScore;
-    if (cv < 0.1f)           // < 10% variation
-        consistencyScore = 1.3f;
-    else if (cv < 0.15f)     // < 15% variation
-        consistencyScore = 1.2f;
-    else if (cv < 0.2f)      // < 20% variation
-        consistencyScore = 1.0f;
-    else if (cv < 0.3f)      // < 30% variation
-        consistencyScore = 0.8f;
-    else                     // > 30% variation
-        consistencyScore = 0.5f;
-    
-    return consistencyScore;
+    if (cv < 0.10f) return 1.3f;
+    if (cv < 0.15f) return 1.2f;
+    if (cv < 0.20f) return 1.0f;
+    if (cv < 0.30f) return 0.8f;
+    return 0.5f;
 }
 
 DetectionRecord SystolicDetector::getBestDetection() const
@@ -227,7 +247,7 @@ int SystolicDetector::softmaxNormalize(DetectionRecord* output, int maxCount, fl
     float sumExp = 0.0f;
     for (int i = 0; i < count; i++)
     {
-        weights[i] = powf(detections[i].confidence, 4);
+        weights[i] = powf(detections[i].confidence / temperature, 2);
         sumExp += weights[i];
     }
 

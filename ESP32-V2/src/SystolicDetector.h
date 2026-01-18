@@ -47,7 +47,6 @@ protected:
     bool lastPulseState;
 
     // Track ALL detections
-    static const int MAX_DETECTIONS = 20;
     DetectionRecord detections[MAX_DETECTIONS];
     int detectionCount;
 

@@ -490,10 +490,29 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
     }
 }
 
+bool extractSBPFromFilename(const std::string& filename, float& sbpOut) {
+    size_t pos = filename.find("SBP");
+    if (pos == std::string::npos) return false;
+
+    pos += 3; // skip "SBP"
+    if (pos >= filename.size()) return false;
+
+    try {
+        sbpOut = std::stof(filename.substr(pos));
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+
 // Output summary report for one run
 void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runNumber) {
     std::ofstream out(outputFile);
     
+    float trueSBP = 0.0f;
+    bool hasTrueSBP = extractSBPFromFilename(outputFile, trueSBP);
+
     out << "=== Blood Pressure Measurement Report - Run #" << runNumber << " ===\n\n";
     
     float baselineBPM = monitor.getBaselineBPM();
@@ -507,7 +526,7 @@ void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runN
     
     BPResult ensembleResult = monitor.getEnsembleResult();
     out << "*** ENSEMBLE RESULT ***\n";
-    out << "Systolic: " << std::fixed << std::setprecision(0) << ensembleResult.systolic << " mmHg\n";
+    out << "Ensemble Systolic: " << std::fixed << std::setprecision(0) << ensembleResult.systolic << " mmHg\n";
     out << "Confidence: " << std::setprecision(3) << ensembleResult.confidence << "\n";
     out << "95% CI: [" << std::setprecision(0) << ensembleResult.confidenceIntervalLow 
         << " - " << ensembleResult.confidenceIntervalHigh << "] mmHg\n";
@@ -523,15 +542,32 @@ void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runN
     out << "Oscillometric MAP Systolic: " << monitor.getMAPDetector()->getSystolic() << " mmHg\n";
     out << "Oscillometric MAP Diastolic: " << monitor.getMAPDetector()->getDiastolic() << " mmHg\n";
     
-    out << "\n--- Top Detectors ---\n\n";
-    out << std::left << std::setw(35) << "Detector" << std::setw(12) << "Best (mmHg)" 
-        << std::setw(12) << "Confidence" << "\n";
-    out << std::string(60, '-') << "\n";
+    out << "\n--- DETECTOR PERFORMANCE SUMMARY ---\n\n";
+
+    out << std::left
+        << std::setw(35) << "Detector"
+        << std::setw(12) << "Best"
+        << std::setw(12) << "Conf";
+
+    if (hasTrueSBP) {
+        out << " | "
+            << std::setw(6) << "Rank"
+            << std::setw(12) << "Best"
+            << std::setw(12) << "Error";
+    }
+
+    out << "\n";
+
+    out << std::string(hasTrueSBP ? 95 : 60, '-') << "\n";
+
     
     struct DetectorResult {
         std::string name;
         DetectionRecord best;
         int detectorIndex;
+
+        float error;        // |best.pressure - SBP|
+        bool hasError;
     };
     
     // Collect all detector results
@@ -542,29 +578,69 @@ void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runN
         results[i].name = monitor.getDetector(i)->getName();
         results[i].best = monitor.getDetector(i)->getBestDetection();
         results[i].detectorIndex = i;
-    }
-    
-    // Sort by confidence (bubble sort)
-    for (int i = 0; i < detectorCount - 1; i++) {
-        for (int j = 0; j < detectorCount - i - 1; j++) {
-            if (results[j].best.confidence < results[j + 1].best.confidence) {
-                DetectorResult temp = results[j];
-                results[j] = results[j + 1];
-                results[j + 1] = temp;
-            }
+
+        if (hasTrueSBP && results[i].best.confidence > 0) {
+            results[i].error = std::fabs(results[i].best.pressure - trueSBP);
+            results[i].hasError = true;
+        } else {
+            results[i].error = 0;
+            results[i].hasError = false;
         }
     }
+
+    std::vector<int> byConfidence(detectorCount);
+    std::vector<int> byAccuracy;
+
+    for (int i = 0; i < detectorCount; i++) {
+        byConfidence[i] = i;
+        if (results[i].hasError)
+            byAccuracy.push_back(i);
+    }
+    std::sort(byConfidence.begin(), byConfidence.end(),
+        [&](int a, int b) {
+            return results[a].best.confidence > results[b].best.confidence;
+        });
+    std::sort(byAccuracy.begin(), byAccuracy.end(),
+        [&](int a, int b) {
+            return results[a].error < results[b].error;
+        });
     
     // Print top 10 detectors
-    int count = 0;
-    for (int i = 0; i < detectorCount && count < 10; i++) {
-        if (results[i].best.confidence > 0) {
-            out << std::left << std::setw(35) << results[i].name 
-                << std::setw(12) << std::fixed << std::setprecision(0) << results[i].best.pressure 
-                << std::setprecision(3) << results[i].best.confidence << "\n";
-            count++;
+    for (int i = 0; i < detectorCount; i++) {
+        int ci = byConfidence[i];
+        const auto& c = results[ci];
+
+        out << std::left
+            << std::setw(35) << c.name
+            << std::setw(12) << std::fixed << std::setprecision(0) << c.best.pressure
+            << std::setw(12) << std::setprecision(3) << c.best.confidence;
+
+        if (hasTrueSBP) {
+            // Find accuracy rank
+            int accRank = -1;
+            for (size_t k = 0; k < byAccuracy.size(); k++) {
+                if (byAccuracy[k] == ci) {
+                    accRank = static_cast<int>(k + 1);
+                    break;
+                }
+            }
+
+            if (accRank > 0) {
+                out << " | "
+                    << std::setw(6) << accRank
+                    << std::setw(12) << std::fixed << std::setprecision(0) << c.best.pressure
+                    << std::setw(12) << std::setprecision(1) << c.error;
+            } else {
+                out << " | "
+                    << std::setw(6) << "-"
+                    << std::setw(12) << "-"
+                    << std::setw(12) << "-";
+            }
         }
+
+        out << "\n";
     }
+
     
     // Now output detailed detector results with top 10 readings for each
     out << "\n\n=== DETAILED DETECTOR RESULTS ===\n\n";
@@ -735,9 +811,9 @@ int main(int argc, char* argv[]) {
     std::vector<SystolicDetector*> allocatedDetectors;
 
     // Add detectors
-    int windows[] = {20, 30, 40, 50};
-    float thresholds[] = {2.0, 2.5, 3.0, 3.5};
-    int holds[] = {5, 10};
+    int windows[] = {25, 30, 35, 40};
+    float thresholds[] = {2.0, 2.2, 2.4, 2.6, 3.0};
+    int holds[] = {10};
     
     for (int w : windows) {
         for (float t : thresholds) {
@@ -750,17 +826,17 @@ int main(int argc, char* argv[]) {
     }
 
     
-    int drv_th[] = {10, 15, 20, 25, 30, 35, 40, 45, 50};
+    // int drv_th[] = {4, 6, 8, 10, 12, 16, 20};
 
-    for (int w : drv_th) {
-        auto* env_det = new EnvelopeSystolicDetector(w);
-        allocatedDetectors.push_back(env_det);
-        monitor.addDetector(env_det);
+    // for (int w : drv_th) {
+        // auto* env_det = new EnvelopeSystolicDetector(w);
+        // allocatedDetectors.push_back(env_det);
+        // monitor.addDetector(env_det);
 
-        auto* der_det = new DerivativeDetector(w/5);
-        allocatedDetectors.push_back(der_det);
-        monitor.addDetector(der_det);
-    }
+    //     auto* der_det = new DerivativeDetector(w);
+    //     allocatedDetectors.push_back(der_det);
+    //     monitor.addDetector(der_det);
+    // }
 
     std::cout << "Using " << monitor.getDetectorCount() << " detectors\n";
 
