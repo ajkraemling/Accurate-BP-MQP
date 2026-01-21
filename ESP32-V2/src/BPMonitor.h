@@ -49,6 +49,7 @@ private:
     unsigned long startTime;
 
     static const int MAX_DETECTORS = 200;
+    static const int MAX_READINGS_PER_DETECTOR = 50;
     SystolicDetector *detectors[MAX_DETECTORS];
     int detectorCount;
 
