@@ -124,7 +124,7 @@ void loop()
     Serial.println();
 
     /* ==========================
-       LOCK ONCE STABLE (Option B)
+       LOCK ONCE STABLE 
        ========================== */
     if (!measurementLocked && status.state == COMPLETE) {
         measurementLocked = true;
@@ -135,11 +135,6 @@ void loop()
         Serial.print("MAP: ");
         Serial.println(map, 0);
 
-        /*
-         * NOTE: CHECK WHEN TESTING
-         * Systolic detection is set to 0.75 oscillometric ratio.
-         * This value is random --> FINETUNING NEEDED! ;)
-         */
     }
 
     delay(SAMPLE_RATE_MS);
