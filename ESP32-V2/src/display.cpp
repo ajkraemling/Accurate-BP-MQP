@@ -1,4 +1,4 @@
-#include "Display.h"
+#include "display.h"
 
 Display::Display() : lcd(LCD_I2C_ADDR) {}
 
