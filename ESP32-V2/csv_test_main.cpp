@@ -811,8 +811,8 @@ int main(int argc, char* argv[]) {
     std::vector<SystolicDetector*> allocatedDetectors;
 
     // Add detectors
-    int windows[] = {25, 30, 35, 40};
-    float thresholds[] = {2.0, 2.2, 2.4, 2.6, 3.0};
+    int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80};
+    float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
     int holds[] = {10};
     
     for (int w : windows) {

@@ -336,14 +336,16 @@ BPResult BPMonitor::getEnsembleResult() const
         float weight;  // softmax-normalized confidence
     };
 
-    DetectorReading readings[MAX_DETECTORS];
+    DetectorReading readings[MAX_DETECTORS * MAX_READINGS_PER_DETECTOR];
     int readingCount = 0;
 
     // --- 1. Collect all normalized hypotheses from detectors ---
     for (int i = 0; i < detectorCount; i++)
     {
-        DetectionRecord top[MAX_DETECTORS];
-        int actualCount = detectors[i]->softmaxNormalize(top, MAX_DETECTORS, 0.1f); // T=0.1 for sharpening
+        if (readingCount >= MAX_DETECTORS * MAX_READINGS_PER_DETECTOR) break;
+        
+        DetectionRecord top[MAX_READINGS_PER_DETECTOR];
+        int actualCount = detectors[i]->softmaxNormalize(top, MAX_READINGS_PER_DETECTOR, 0.1f); // T=0.1 for sharpening
 
         for (int j = 0; j < actualCount; j++)
         {
