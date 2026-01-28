@@ -717,6 +717,7 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
     BPState lastState = IDLE;
 
     // Process all rows, detecting and handling run completions
+    ////////////////need to include this functionallity
     for (const auto& row : data.rows) {
         BPMeasurement measurement;
         measurement.pressure = row.pressure;
