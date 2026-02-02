@@ -811,9 +811,12 @@ int main(int argc, char* argv[]) {
     std::vector<SystolicDetector*> allocatedDetectors;
 
     // Add detectors
-    int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80};
+    // int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80};
+    // float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
+    // int holds[] = {10};
+    int windows[] = {5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150};
     float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
-    int holds[] = {10};
+    int holds[] = {5, 10, 15, 20, 30};
     
     for (int w : windows) {
         for (float t : thresholds) {
@@ -826,17 +829,17 @@ int main(int argc, char* argv[]) {
     }
 
     
-    // int drv_th[] = {4, 6, 8, 10, 12, 16, 20};
+    int drv_th[] = {4, 6, 8, 10, 12, 16, 20};
 
-    // for (int w : drv_th) {
-        // auto* env_det = new EnvelopeSystolicDetector(w);
-        // allocatedDetectors.push_back(env_det);
-        // monitor.addDetector(env_det);
+    for (int w : drv_th) {
+        auto* env_det = new EnvelopeSystolicDetector(w);
+        allocatedDetectors.push_back(env_det);
+        monitor.addDetector(env_det);
 
-    //     auto* der_det = new DerivativeDetector(w);
-    //     allocatedDetectors.push_back(der_det);
-    //     monitor.addDetector(der_det);
-    // }
+        auto* der_det = new DerivativeDetector(w);
+        allocatedDetectors.push_back(der_det);
+        monitor.addDetector(der_det);
+    }
 
     std::cout << "Using " << monitor.getDetectorCount() << " detectors\n";
 

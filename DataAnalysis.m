@@ -350,6 +350,8 @@ end
 
 blTab = uitab(tabGroup, 'Title', 'Baseline Analysis');
 createBLAnalysisTab(blTab, allRuns, allDetectors);
+blTab_v2 = uitab(tabGroup, 'Title', 'Baseline Analysis Error from Ground Truth');
+createBLAnalysisTab_v2(blTab_v2, allRuns, allDetectors);
 
 drvTab = uitab(tabGroup, 'Title', 'Derivative Analysis');
 createDRVAnalysisTab(drvTab, allRuns, allDetectors);
@@ -428,55 +430,55 @@ function createFileTab(parentTab, runInfo)
     ax.YColor = 'b';
 
     % --- Plot Baseline Beat markers on pressure ---
-    if isfield(runInfo, 'hasBaselineBeat') && runInfo.hasBaselineBeat
-        beatIdx = find(runInfo.baselineBeat == 1);
-    
-        if ~isempty(beatIdx)
-            beatTimes = runInfo.time(beatIdx);
-            beatPressures = runInfo.pressure(beatIdx);
-    
-            h_baseline = plot(beatTimes, beatPressures, 'ks', ...
-                'MarkerSize', 5, ...
-                'MarkerFaceColor', 'k', ...
-                'LineWidth', 1.2);
-        end
-    end
+    % if isfield(runInfo, 'hasBaselineBeat') && runInfo.hasBaselineBeat
+    %     beatIdx = find(runInfo.baselineBeat == 1);
+    % 
+    %     if ~isempty(beatIdx)
+    %         beatTimes = runInfo.time(beatIdx);
+    %         beatPressures = runInfo.pressure(beatIdx);
+    % 
+    %         h_baseline = plot(beatTimes, beatPressures, 'ks', ...
+    %             'MarkerSize', 5, ...
+    %             'MarkerFaceColor', 'k', ...
+    %             'LineWidth', 1.2);
+    %     end
+    % end
 
     
     % Plot ground truth marker if available
     hasGroundTruth = false;
-    if runInfo.hasGroundTruth
-        hasGroundTruth = true;
-        % Plot ground truth line
-        h_gt = xline(runInfo.groundTruthTime, ':', 'Color', [0 0.5 0], 'LineWidth', 2.5);
-        plot(runInfo.groundTruthTime, runInfo.groundTruthPressure, 'p', ...
-            'Color', [0 0.5 0], 'MarkerSize', 14, 'LineWidth', 2, 'MarkerFaceColor', [0 0.8 0]);
-    end
+    % if runInfo.hasGroundTruth
+    %     hasGroundTruth = true;
+    %     % Plot ground truth line
+    %     h_gt = xline(runInfo.groundTruthTime, ':', 'Color', [0 0.5 0], 'LineWidth', 2.5);
+    %     plot(runInfo.groundTruthTime, runInfo.groundTruthPressure, 'p', ...
+    %         'Color', [0 0.5 0], 'MarkerSize', 14, 'LineWidth', 2, 'MarkerFaceColor', [0 0.8 0]);
+    % end
     
     % Plot AUS_PULSE_HEARD markers if available
     hasAusPulseData = false;
-    if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
-        hasAusPulseData = true;
-        fprintf('  Plotting %d stethoscope pulses\n', length(runInfo.pulseHeardIndices));
-
-        pulseTimes = runInfo.time(runInfo.pulseHeardIndices);
-        pulsePressures = runInfo.pressure(runInfo.pulseHeardIndices);
-        pulsePPG = runInfo.ppg(runInfo.pulseHeardIndices);
-
-        % Plot X markers on pressure (right axis)
-        h_pulse_pressure = plot(pulseTimes, pulsePressures, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
-
-        % Switch to left axis for PPG markers
-        yyaxis left
-        plot(pulseTimes, pulsePPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
-        if runInfo.hasRawPPG
-            pulseRawPPG = runInfo.rawPPG(runInfo.pulseHeardIndices);
-            plot(pulseTimes, pulseRawPPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
-        end
-
-        % Switch back to right axis
-        yyaxis right
-    end
+    % if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
+    %     hasAusPulseData = true;
+    %     fprintf('  Plotting %d stethoscope pulses\n', length(runInfo.pulseHeardIndices));
+    % 
+    %     pulseTimes = runInfo.time(runInfo.pulseHeardIndices);
+    %     pulsePressures = runInfo.pressure(runInfo.pulseHeardIndices);
+    %     pulsePPG = runInfo.ppg(runInfo.pulseHeardIndices);
+    % 
+    %     % Plot X markers on pressure (right axis)
+    %     h_pulse_pressure = plot(pulseTimes, pulsePressures, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
+    % 
+    %     % Switch to left axis for PPG markers
+    %     yyaxis left
+    %     plot(pulseTimes, pulsePPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
+    %     if runInfo.hasRawPPG
+    %         pulseRawPPG = runInfo.rawPPG(runInfo.pulseHeardIndices);
+    %         plot(pulseTimes, pulseRawPPG, 'kx', 'MarkerSize', 6, 'LineWidth', 1.5);
+    %     end
+    % 
+    %     % Switch back to right axis
+    %     yyaxis right
+    % end
     
     % Sort detectors by detection pressure
     detectorPressures = zeros(length(runInfo.detectors), 1);
@@ -531,34 +533,34 @@ function createFileTab(parentTab, runInfo)
     end
     
     % Plot detector lines
-    for j = 1:length(sortedDetectors)
-        detName = sortedDetectors{j};
-        safeName = strrep(detName, '_', '\_');
-        if isKey(runInfo.detections, detName)
-            detection = runInfo.detections(detName);
-            detTime = detection.time;
-            detPressure = detection.pressure;
-
-            if detection.detected && ~isnan(detTime)
-                xline(detTime, '--', 'Color', colors(j,:), 'LineWidth', 1.5);
-                h = plot(detTime, detPressure, 'o', 'Color', colors(j,:), ...
-                    'MarkerSize', 10, 'LineWidth', 2);
-                legendHandles(end+1) = h;
-
-                % Add error to legend if ground truth available
-                if hasGroundTruth
-                    legendLabels{end+1} = sprintf('%s: %.1f mmHg (Δ=%.1f)', ...
-                        safeName, detPressure, detection.error);
-                else
-                    legendLabels{end+1} = sprintf('%s: %.1f mmHg', safeName, detPressure);
-                end
-            else
-                h = plot(NaN, NaN, 'o', 'Color', colors(j,:), 'MarkerSize', 10, 'LineWidth', 2);
-                legendHandles(end+1) = h;
-                legendLabels{end+1} = sprintf('%s: No detection', safeName);
-            end
-        end
-    end
+    % for j = 1:length(sortedDetectors)
+    %     detName = sortedDetectors{j};
+    %     safeName = strrep(detName, '_', '\_');
+    %     if isKey(runInfo.detections, detName)
+    %         detection = runInfo.detections(detName);
+    %         detTime = detection.time;
+    %         detPressure = detection.pressure;
+    % 
+    %         if detection.detected && ~isnan(detTime)
+    %             xline(detTime, '--', 'Color', colors(j,:), 'LineWidth', 1.5);
+    %             h = plot(detTime, detPressure, 'o', 'Color', colors(j,:), ...
+    %                 'MarkerSize', 10, 'LineWidth', 2);
+    %             legendHandles(end+1) = h;
+    % 
+    %             % Add error to legend if ground truth available
+    %             if hasGroundTruth
+    %                 legendLabels{end+1} = sprintf('%s: %.1f mmHg (Δ=%.1f)', ...
+    %                     safeName, detPressure, detection.error);
+    %             else
+    %                 legendLabels{end+1} = sprintf('%s: %.1f mmHg', safeName, detPressure);
+    %             end
+    %         else
+    %             h = plot(NaN, NaN, 'o', 'Color', colors(j,:), 'MarkerSize', 10, 'LineWidth', 2);
+    %             legendHandles(end+1) = h;
+    %             legendLabels{end+1} = sprintf('%s: No detection', safeName);
+    %         end
+    %     end
+    % end
 
     % Create xlabel with blood pressure values
     xlabelStr = 'Time (s)';
@@ -1025,6 +1027,165 @@ function createSBPReferenceTab(parentTab, allRuns, allDetectors)
         idx = sortIdx(i);
         fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
             i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
+    end
+    fprintf('\n');
+end
+function createBLAnalysisTab_v2(parentTab, allRuns, allDetectors)
+    % Enhanced BL Analysis with Error Statistics
+    
+    blDetectors = allDetectors(startsWith(allDetectors, 'BL_'));
+    
+    if isempty(blDetectors)
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No BL detectors found in the data.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    % Filter to runs with ground truth
+    runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
+    numRunsGT = length(runsWithGT);
+    
+    if numRunsGT == 0
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No runs with ground truth data found for error analysis.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    numBL = length(blDetectors);
+    params = zeros(numBL, 3);
+    validDetectors = true(numBL, 1);
+    
+    % Parse detector parameters
+    for i = 1:numBL
+        tokens = regexp(blDetectors{i}, 'BL_W(\d+)_T(\d+)_(\d+)_D(\d+)', 'tokens');
+        if ~isempty(tokens) && ~isempty(tokens{1})
+            W = str2double(tokens{1}{1});
+            T_integer = str2double(tokens{1}{2});
+            T_decimal = str2double(tokens{1}{3});
+            D = str2double(tokens{1}{4});
+            T = T_integer + T_decimal / 10;
+            params(i, :) = [W, T, D];
+        else
+            validDetectors(i) = false;
+        end
+    end
+    
+    % Filter to only valid detectors
+    blDetectors = blDetectors(validDetectors);
+    params = params(validDetectors, :);
+    numBL = length(blDetectors);
+    
+    if numBL == 0
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No BL detectors with valid naming format found.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    fprintf('\nSuccessfully parsed %d BL detectors for error analysis\n', numBL);
+    
+    % Extract errors from ground truth runs
+    errors = nan(numBL, numRunsGT);
+    
+    for i = 1:numRunsGT
+        for j = 1:numBL
+            detName = blDetectors{j};
+            if isKey(runsWithGT{i}.detections, detName)
+                detection = runsWithGT{i}.detections(detName);
+                if detection.detected
+                    errors(j, i) = detection.error;
+                end
+            end
+        end
+    end
+    
+    % Create axes - 3 plots stacked vertically
+    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.68, 0.86, 0.26]);  % W - Mean Error
+    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.38, 0.86, 0.26]);  % T - Mean Error
+    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.08, 0.86, 0.26]);  % D - Mean Error
+    
+    % --- Window Size Analysis ---
+    uniqueW = sort(unique(params(:, 1)));
+    meanErrByW = zeros(length(uniqueW), 1);
+    stdErrByW = zeros(length(uniqueW), 1);
+    
+    for i = 1:length(uniqueW)
+        idx = params(:, 1) == uniqueW(i);
+        meanErrByW(i) = mean(errors(idx, :), 'all', 'omitnan');
+        stdErrByW(i) = std(errors(idx, :), 0, 'all', 'omitnan');
+    end
+    
+    % Plot Window Size - Mean Error
+    axes(ax1);
+    errorbar(uniqueW, meanErrByW, stdErrByW, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on;
+    xlabel('Window Size (W)', 'FontSize', 11);
+    ylabel('Mean Error (mmHg)', 'FontSize', 11);
+    title('Window Size: Mean Error ± SD', 'FontSize', 12);
+    yline(0, 'k--', 'LineWidth', 1);
+    
+    % --- Threshold Analysis ---
+    uniqueT = sort(unique(params(:, 2)));
+    meanErrByT = zeros(length(uniqueT), 1);
+    stdErrByT = zeros(length(uniqueT), 1);
+    
+    for i = 1:length(uniqueT)
+        idx = params(:, 2) == uniqueT(i);
+        meanErrByT(i) = mean(errors(idx, :), 'all', 'omitnan');
+        stdErrByT(i) = std(errors(idx, :), 0, 'all', 'omitnan');
+    end
+    
+    % Plot Threshold - Mean Error
+    axes(ax2);
+    errorbar(uniqueT, meanErrByT, stdErrByT, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on;
+    xlabel('Threshold Multiplier (T)', 'FontSize', 11);
+    ylabel('Mean Error (mmHg)', 'FontSize', 11);
+    title('Threshold: Mean Error ± SD', 'FontSize', 12);
+    yline(0, 'k--', 'LineWidth', 1);
+    
+    % --- Minimum Deviation Analysis ---
+    uniqueD = sort(unique(params(:, 3)));
+    meanErrByD = zeros(length(uniqueD), 1);
+    stdErrByD = zeros(length(uniqueD), 1);
+    
+    for i = 1:length(uniqueD)
+        idx = params(:, 3) == uniqueD(i);
+        meanErrByD(i) = mean(errors(idx, :), 'all', 'omitnan');
+        stdErrByD(i) = std(errors(idx, :), 0, 'all', 'omitnan');
+    end
+    
+    % Plot Minimum Deviation - Mean Error
+    axes(ax3);
+    errorbar(uniqueD, meanErrByD, stdErrByD, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
+    grid on;
+    xlabel('Minimum Deviation (D)', 'FontSize', 11);
+    ylabel('Mean Error (mmHg)', 'FontSize', 11);
+    title('Min Deviation: Mean Error ± SD', 'FontSize', 12);
+    yline(0, 'k--', 'LineWidth', 1);
+    
+    % Print summary statistics
+    fprintf('\n=== BL PARAMETER ERROR ANALYSIS ===\n');
+    fprintf('Analyzed %d BL detectors across %d runs with ground truth\n\n', numBL, numRunsGT);
+    
+    fprintf('Window Size Effects:\n');
+    for i = 1:length(uniqueW)
+        fprintf('  W=%d: Mean Error = %.2f ± %.2f mmHg\n', ...
+            uniqueW(i), meanErrByW(i), stdErrByW(i));
+    end
+    
+    fprintf('\nThreshold Effects:\n');
+    for i = 1:length(uniqueT)
+        fprintf('  T=%.1f: Mean Error = %.2f ± %.2f mmHg\n', ...
+            uniqueT(i), meanErrByT(i), stdErrByT(i));
+    end
+    
+    fprintf('\nMinimum Deviation Effects:\n');
+    for i = 1:length(uniqueD)
+        fprintf('  D=%d: Mean Error = %.2f ± %.2f mmHg\n', ...
+            uniqueD(i), meanErrByD(i), stdErrByD(i));
     end
     fprintf('\n');
 end
