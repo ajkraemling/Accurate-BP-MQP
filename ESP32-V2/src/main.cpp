@@ -1,127 +1,160 @@
 #include <Arduino.h>
 #include <Wire.h>
+
 #include "config.h"
 #include "sensors.h"
-#include "Display.h"
+#include "display.h"
 #include "DisplayPresenter.h"
 #include "SerialLogger.h"
 #include "DataLogger.h"
+
 #include "BPMonitor.h"
 #include "SystolicDetector.h"
+#include "MAPDetector.h"
+#include "filters.h"
 
-// Hardware adapters
+// Declare objects 
+
 PressureSensor pressureSensor;
-PPGSensor ppgSensor;
-Display display;
-SerialLogger serialLogger;
+PPGSensor ppgSensor(PPG_PIN);
 
-// Presenters and business logic
-DisplayPresenter presenter(&display);
+Display lcd;
+DisplayPresenter presenter(&lcd);
+
 BPMonitor bpMonitor;
-DataLogger dataLogger(&serialLogger, &bpMonitor);
+PPGBandpassFilter ppgFilter(1000.0f / SAMPLE_RATE_MS);
 
-// Detection algorithms
-BaselineDetector det1(20, 2.5, 5);
-BaselineDetector det2(40, 2.5, 5);
-BaselineDetector det3(60, 2.5, 5);
-BaselineDetector det4(10, 2.5, 5);
-BaselineDetector det5(20, 1.0, 5);
-BaselineDetector det6(20, 1.5, 5);
-BaselineDetector det7(10, 1.0, 5);
-BaselineDetector det8(20, 2.5, 5);
+float lastMAP = 0;
+float lastSys = 0;
+float lastDia = 0;
 
-DerivativeDetector det11(5, 20);
-DerivativeDetector det12(10, 20);
-DerivativeDetector det13(5, 30);
-DerivativeDetector det14(5, 1);
+BPState lastState = IDLE;
+int runNumber = 1;
+
+// Setup
 
 void setup()
 {
     Serial.begin(115200);
-    Wire.begin(21, 22);
-    delay(500);
+    Wire.begin();
 
-    serialLogger.logLine("\n========== Blood Pressure Monitor ==========");
+    // sensors
+    pressureSensor.begin();
+    pressureSensor.calibrate();
+    ppgSensor.resetFilter();
 
-    // Initialize pressure sensor
-    if (!pressureSensor.begin())
-    {
-        serialLogger.logLine("ERROR: Pressure sensor not found!");
-        presenter.showError("Pressure sensor");
-        while (1)
-            delay(10);
-    }
-
-    // Initialize display
-    if (!display.begin())
-    {
-        serialLogger.logLine("ERROR: LCD not found!");
-        while (1)
-            delay(10);
-    }
-
-    // Add detectors to BP monitor
-    bpMonitor.addDetector(&det1);
-    bpMonitor.addDetector(&det2);
-    bpMonitor.addDetector(&det3);
-    bpMonitor.addDetector(&det4);
-    bpMonitor.addDetector(&det5);
-    bpMonitor.addDetector(&det6);
-    bpMonitor.addDetector(&det7);
-    bpMonitor.addDetector(&det8);
-
-    // Countdown
-    for (int i = 5; i > 0; i--)
-    {
-        presenter.showCountdown(i);
-        char buffer[16];
-        sprintf(buffer, "%d... ", i);
-        serialLogger.log(buffer);
-        delay(1000);
-    }
-    serialLogger.logLine("");
-
-    // Calibration
-    presenter.showCalibrating();
-    pressureSensor.calibrate(&serialLogger);
-
+    // lcd display
+    lcd.begin();
     presenter.showReady();
-    delay(1000);
 
-    serialLogger.logLine("\n========== Ready for Measurement ==========");
-    dataLogger.printHeader();
+    // BP Monitor Setup 
+    bpMonitor.setFilter(&ppgFilter);
+
+    int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80};
+    float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
+    int holds[] = {10};
+
+    for (int w : windows) {
+        for (float t : thresholds) {
+            for (int h : holds) {
+                bpMonitor.addDetector(new BaselineDetector(w, t, h));
+            }
+        }
+    }
+
+    Serial.print("Detectors active: ");
+    Serial.println(bpMonitor.getDetectorCount());
+
+    bpMonitor.reset();
 }
+
 
 void loop()
 {
-    // Read sensors
-    int ppgSignal = ppgSensor.read();
-    int rawPPGSignal = ppgSensor.readRaw();
+    // Read Sensors
     float pressure = pressureSensor.readGaugePressure();
-    unsigned long timestamp = millis();
+    int rawPPG = ppgSensor.readRaw();
+    int filteredPPG = ppgSensor.read();  // already bandpass filtered
 
-    // Create measurement
     BPMeasurement measurement;
     measurement.pressure = pressure;
-    measurement.ppgSignal = ppgSignal;
-    measurement.rawPPGSignal = rawPPGSignal;
-    measurement.timestamp = timestamp;
+    measurement.timestamp = millis();
+    measurement.ppgSignal = filteredPPG;
+    measurement.rawPPGSignal = rawPPG;
 
-    // Update business logic
+    // Update sensors
     bpMonitor.update(measurement);
-    
-    // Update UI
+
+    //Oscillmetric tracking
+    float oscAmp = bpMonitor.getMAPDetector()->getLatestAmplitude();
+
+    float mapP = bpMonitor.getMAPDetector()->getMAP();
+    float sysP = bpMonitor.getMAPDetector()->getSystolic();
+    float diaP = bpMonitor.getMAPDetector()->getDiastolic();
+
+    if (mapP > 0 && pressure <= mapP) lastMAP = mapP;
+    if (sysP > 0 && pressure <= sysP) lastSys = sysP;
+    if (diaP > 0 && pressure <= diaP) lastDia = diaP;
+
+    // Update display screen
     BPStatus status = bpMonitor.getStatus();
     presenter.showStatus(status);
-    
-    // Log data
-    dataLogger.printMeasurement(measurement);
-    
-    // Check for timeout
-    if (status.state == COMPLETE)
-    {
-        dataLogger.printComment("Measurement complete or timeout");
+
+    //serial outputs (dor debugging)
+    Serial.print("P=");
+    Serial.print(pressure, 1);
+    Serial.print("  Osc=");
+    Serial.print(oscAmp, 2);
+    Serial.print("  MAP=");
+    Serial.print(lastMAP, 0);
+    Serial.print("  Sys=");
+    Serial.print(lastSys, 0);
+    Serial.print("  Dia=");
+    Serial.print(lastDia, 0);
+
+    BPResult ensemble = bpMonitor.getEnsembleResult();
+    if (ensemble.systolic > 0) {
+        Serial.print("  Ensemble=");
+        Serial.print(ensemble.systolic, 0);
+        Serial.print("  Conf=");
+        Serial.print(ensemble.confidence, 3);
     }
+    Serial.println();
+
+    //Complete function - State Machine status change 
+    BPState currentState = bpMonitor.getState();
+
+    if (lastState != COMPLETE && currentState == COMPLETE)
+    {
+        Serial.println("\n===== MEASUREMENT COMPLETE =====");
+
+        float map = bpMonitor.getMAP();
+        BPResult result = bpMonitor.getEnsembleResult();
+
+        Serial.print("Run #");
+        Serial.println(runNumber++);
+        Serial.print("Final Systolic: ");
+        Serial.println(result.systolic, 0);
+        Serial.print("MAP: ");
+        Serial.println(map, 0);
+
+        if (result.systolic > 0 && map > 0) {
+            float DBP = (3.0f * map - result.systolic) / 2.0f;
+            Serial.print("Estimated Diastolic: ");
+            Serial.println(DBP, 0);
+        }
+
+        Serial.println("================================");
+
+        presenter.showStatus(bpMonitor.getStatus());
+
+
+        while (true) {
+            delay(1000);
+        }
+    }
+
+    lastState = currentState;
 
     delay(SAMPLE_RATE_MS);
 }
