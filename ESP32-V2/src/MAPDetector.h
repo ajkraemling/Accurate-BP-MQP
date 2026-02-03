@@ -6,7 +6,7 @@
 // Beat record: stores one cardiac cycle measurement
 struct BeatRecord {
     float cuffPressure;      // Cuff pressure at beat (mmHg)
-    float amplitude;         // Oscillation amplitude (mmHg)
+    float amplitude;         // Oscillation amplitude (integrated energy)
     unsigned long timestamp; // Time of beat (ms)
 };
 
@@ -23,13 +23,13 @@ public:
     // Reset detector state (call before new measurement)
     void reset();
 
-    // Process new pressure sample
-    // pressure: raw cuff pressure in mmHg
-    // timestamp: time in milliseconds
-    void addSample(float pressure, unsigned long timestamp);
+    // ✅ UPDATED: Now takes oscillation amplitude from BPMonitor
+    // pressure  = cuff pressure (mmHg)
+    // osc       = band-pass filtered oscillometric signal
+    // timestamp = time in ms
+    void addSample(float pressure, float osc, unsigned long timestamp);
 
     // Attempt to calculate BP from accumulated beats
-    // Returns true if successful (requires sufficient beats)
     bool detectMAP();
 
     // Get results (returns -1 if not yet calculated)
@@ -37,19 +37,19 @@ public:
     float getSystolic() const;
     float getDiastolic() const;
 
-    // Get beat information
+    // Beat information
     int getBeatCount() const;
     void getBeatRecords(BeatRecord* out, int maxCount, int* actualCount) const;
     float getLatestAmplitude() const;
     float getLatestBeatPressure() const;
 
     // Tuning parameters
-    void setSystolicRatio(float r);      // Typically 0.50-0.58
-    void setDiastolicRatio(float r);     // Typically 0.80-0.90
-    void setMinPeakAmplitude(float a);   // Minimum valid amplitude (mmHg)
-    void setMaxReasonableAmplitude(float a); // Maximum valid amplitude (mmHg)
+    void setSystolicRatio(float r);
+    void setDiastolicRatio(float r);
+    void setMinPeakAmplitude(float a);
+    void setMaxReasonableAmplitude(float a);
 
-    // Legacy interface (for compatibility)
+    // Legacy interface (kept for compatibility, not used in new flow)
     float extractTrend(float pressure);
     float calcOscillation(float pressure, float trend);
 
@@ -61,26 +61,16 @@ private:
     // Detection state
     unsigned long lastPeakTime;
     float lastOscillation;
-    float lastPressure;
-    bool wasRising;
-    bool filtersSettled;
-    int filterSettleCount;
-    bool initializationPhase;
-    
-    // Integration method state
     float lastDerivative;
+    bool initializationPhase;
+    int filterSettleCount;
     bool inPulse;
     PulseBuffer* pulseBuffer;
 
-    // Legacy trend buffer (unused in current implementation)
+    // Trend tracking
     float trendBuffer[TREND_WINDOW];
     int trendIdx;
     int trendCount;
-
-    // Peak detection state (unused in current implementation)
-    bool inPotentialPeak;
-    float peakCandidateValue;
-    float peakCandidatePressure;
 
     // Results
     float mapPressure;
@@ -93,7 +83,7 @@ private:
     float minPeakAmplitude;
     float maxReasonableAmplitude;
 
-    // Internal methods
+    // Internal helpers
     void recordBeat(float pressure, float amplitude, unsigned long timestamp);
     float findMAPFromBeats(int startIdx, int endIdx) const;
     bool findSystolicDiastolic(float &sbp, float &dbp, int startIdx, int endIdx) const;

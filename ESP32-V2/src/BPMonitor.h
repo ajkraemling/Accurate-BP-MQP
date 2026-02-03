@@ -15,10 +15,10 @@ enum BPState
 
 struct BPMeasurement
 {
-    float pressure;
-    int ppgSignal;
-    int rawPPGSignal;
-    unsigned long timestamp;
+    float pressure;           // Cuff pressure (mmHg)
+    int ppgSignal;            // Filtered PPG signal
+    int rawPPGSignal;         // Raw PPG (debug)
+    unsigned long timestamp;  // Time (ms)
 };
 
 struct BPStatus
@@ -32,12 +32,12 @@ struct BPStatus
 
 struct BPResult
 {
-    float systolic;              // Best systolic reading
-    float confidence;            // Confidence score (0.0-1.0)
-    float confidenceIntervalLow; // Lower bound of 95% CI
-    float confidenceIntervalHigh;// Upper bound of 95% CI
-    int agreementCount;          // Number of detectors in agreement
-    int totalDetectors;          // Total detectors that detected something
+    float systolic;
+    float confidence;
+    float confidenceIntervalLow;
+    float confidenceIntervalHigh;
+    int agreementCount;
+    int totalDetectors;
 };
 
 class BPMonitor
@@ -47,67 +47,67 @@ private:
     float systolic;
     float maxPressure;
     unsigned long startTime;
+    
 
+    // ================= SYSTOLIC DETECTORS =================
     static const int MAX_DETECTORS = 200;
     static const int MAX_READINGS_PER_DETECTOR = 50;
+
     SystolicDetector *detectors[MAX_DETECTORS];
     int detectorCount;
 
-    // Baseline heart rate tracking
+    // ================= BASELINE HEART RATE =================
     static const int MAX_BASELINE_BEATS = 200;
     unsigned long baselineBeats[MAX_BASELINE_BEATS];
     int baselineBeatCount;
     HeartRateRange baselineHR;
     bool hrCalculated;
     unsigned long lastBPMMeasurement;
-    
-    // Pressure oscillation detection for baseline HR
+
+    // Pressure oscillation tracking (for HR during inflation)
     static const int PRESSURE_HISTORY_SIZE = 5;
     float pressureHistory[PRESSURE_HISTORY_SIZE];
     int pressureHistoryIdx;
     int pressureHistoryCount;
     float lastPressureDerivative;
-    unsigned long int lastPeakTime = 0;
-    
-    // Optional external filter to configure
-    PPGBandpassFilter* externalFilter;
+    unsigned long lastPeakTime;
 
+    // ================= PPG FILTER =================
+    PPGBandpassFilter* externalFilter;   // Provided from main
+
+    // ================= MAP DETECTOR =================
     MAPDetector mapDetector;
-    
-    // Calculate baseline HR from inflation pressure oscillations
+
+    // Internal helpers
     void calculateBaselineHeartRate(unsigned long currentTime);
-    
-    // Detect pressure oscillations (heartbeats)
     bool detectPressureOscillation(float currentPressure, unsigned long timestamp);
 
 public:
     BPMonitor();
-    
+
     void addDetector(SystolicDetector *detector);
     void reset();
     void update(const BPMeasurement& measurement);
-    
-    // Set external filter to be configured based on baseline HR
+
+    // Provide external bandpass filter (PPG)
     void setFilter(PPGBandpassFilter* filter);
-    
+
     BPStatus getStatus() const;
     float getSystolic() const;
     BPState getState() const;
     int getDetectorCount() const;
     SystolicDetector* getDetector(int index) const;
-    
-    // Get best reading across all detectors
+
+    // Ensemble systolic result
     float getBestSystolic(float* outConfidence = nullptr) const;
-    
-    // Get ensemble result with confidence interval
     BPResult getEnsembleResult() const;
-    
-    // Get baseline heart rate info
+
+    // Baseline HR info
     HeartRateRange getBaselineHeartRate() const;
     float getBaselineBPM() const;
     const unsigned long* getBaselineBeats(int& outCount) const;
 
-    // MAP 
+    // ================= MAP ACCESS =================
     float getMAP();
     MAPDetector* getMAPDetector();
 };

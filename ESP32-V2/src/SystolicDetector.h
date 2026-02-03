@@ -1,7 +1,17 @@
-#ifndef PULSE_DETECTOR_H
-#define PULSE_DETECTOR_H
-#include "EnvelopeSmoother.h"
+#ifndef SYSTOLIC_DETECTOR_H
+#define SYSTOLIC_DETECTOR_H
+
 #include "config.h"
+#include "EnvelopeSmoother.h"
+
+// Only define if not already defined in config.h
+#ifndef MIN_BEAT_INTERVALS_MS
+#define MIN_BEAT_INTERVALS_MS 300   // ~200 BPM max
+#endif
+
+#ifndef MAX_BEAT_INTERVALS_MS
+#define MAX_BEAT_INTERVALS_MS 2000  // ~30 BPM min
+#endif
 
 struct DetectionRecord
 {
@@ -39,6 +49,7 @@ struct HeartRateRange
     }
 };
 
+// Base abstract detector class
 class SystolicDetector
 {
 protected:
@@ -46,7 +57,7 @@ protected:
     int lastSignal;
     bool lastPulseState;
 
-    // Track ALL detections
+    // Track ALL detections - MAX_DETECTIONS is defined in config.h
     DetectionRecord detections[MAX_DETECTIONS];
     int detectionCount;
 
@@ -71,7 +82,9 @@ protected:
 public:
     SystolicDetector(const char* detectorName);
     virtual ~SystolicDetector() {}
-    virtual bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) = 0;
+    
+    // Pure virtual - must be implemented by derived classes
+    virtual void detect(int ppgSignal, float pressure, unsigned long timestamp) = 0;
     virtual void reset() = 0;
     
     const char* getName() const;
@@ -82,10 +95,15 @@ public:
     
     // Get best detection(s)
     DetectionRecord getBestDetection() const;
-    int softmaxNormalize(DetectionRecord* output, int maxCount, float temperature) const;
+    int softmaxNormalize(DetectionRecord* output, int maxCount, float temperature = 1.0f) const;
     void getTopDetections(DetectionRecord* output, int maxCount, int* actualCount) const;
+
+    // Get systolic and confidence
+    float getSystolic() const;    // Returns pressure of best detection
+    float getConfidence() const;  // Returns confidence of best detection
 };
 
+// ===== BASELINE DETECTOR =====
 // Statistical baseline detection with configurable parameters
 class BaselineDetector : public SystolicDetector
 {
@@ -103,32 +121,36 @@ private:
     char nameBuffer[64];
 
 public:
-    BaselineDetector(int window, float threshold,
-                     int minDev);
+    BaselineDetector(int window, float threshold, int minDev);
     ~BaselineDetector();
-    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
-    void reset() override;
+    
+    virtual void detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    virtual void reset() override;
 };
 
+// ===== DERIVATIVE DETECTOR =====
 // Derivative-based detection (detects rising edge)
-class DerivativeDetector : public SystolicDetector {
+class DerivativeDetector : public SystolicDetector 
+{
+private:
+    int threshold;
+
+    int prevSample;
+    int prevDerivative;
+    bool hasPrev;
+
+    char nameBuffer[64];
+
 public:
     explicit DerivativeDetector(int derivThreshold);
     ~DerivativeDetector() override;
 
-    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
-    void reset() override;
-
-private:
-    int threshold;
-
-    int prevSample = 0;
-    int prevDerivative = 0;
-    bool hasPrev = false;
-
-    char nameBuffer[64];
+    virtual void detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    virtual void reset() override;
 };
 
+// ===== ENVELOPE DETECTOR =====
+// Envelope-based detector
 class EnvelopeSystolicDetector : public SystolicDetector
 {
 private:
@@ -159,7 +181,8 @@ public:
     explicit EnvelopeSystolicDetector(int window);
     ~EnvelopeSystolicDetector() override;
 
-    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
-    void reset() override;
+    virtual void detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    virtual void reset() override;
 };
+
 #endif

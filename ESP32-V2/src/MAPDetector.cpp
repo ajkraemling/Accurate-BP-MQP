@@ -5,76 +5,49 @@
 #include <algorithm>
 #include <config.h>
 
-// Band-pass filter for oscillometric component of cuff pressure
-static PPGBandpassFilter g_oscFilter(1000.0f / SAMPLE_RATE_MS);
+// We NO LONGER filter pressure here — oscillation is provided externally
 
 // Cuff pressure trend tracker (slow-moving average for DC component)
 class CuffTrendTracker {
 private:
-    static const int WINDOW_SIZE = 50;  // ~1 second at 50Hz
+    static const int WINDOW_SIZE = 50;
     float buffer[WINDOW_SIZE];
     int idx;
     int count;
     bool initialized;
-    
 public:
     CuffTrendTracker() : idx(0), count(0), initialized(false) {
         memset(buffer, 0, sizeof(buffer));
     }
-    
     void reset() {
-        idx = 0;
-        count = 0;
-        initialized = false;
+        idx = 0; count = 0; initialized = false;
         memset(buffer, 0, sizeof(buffer));
     }
-    
     void initialize(float initialValue) {
-        for (int i = 0; i < WINDOW_SIZE; i++) {
-            buffer[i] = initialValue;
-        }
-        idx = 0;
-        count = WINDOW_SIZE;
-        initialized = true;
+        for (int i = 0; i < WINDOW_SIZE; i++) buffer[i] = initialValue;
+        idx = 0; count = WINDOW_SIZE; initialized = true;
     }
-    
     float update(float value) {
-        if (!initialized) {
-            initialize(value);
-            return value;
-        }
-        
+        if (!initialized) { initialize(value); return value; }
         buffer[idx] = value;
         idx = (idx + 1) % WINDOW_SIZE;
         if (count < WINDOW_SIZE) count++;
-        
         float sum = 0.0f;
-        for (int i = 0; i < count; ++i) {
-            sum += buffer[i];
-        }
+        for (int i = 0; i < count; ++i) sum += buffer[i];
         return sum / (float)count;
     }
-    
-    bool isReady() const {
-        return count >= WINDOW_SIZE;
-    }
 };
-
 static CuffTrendTracker g_cuffTrend;
 
-// Pulse integration buffer - stores samples between pulse starts
+
+// Pulse integration buffer
 struct PulseBuffer {
-    static const int MAX_SAMPLES = 100;  // Max samples per pulse (~2 seconds at 50Hz)
+    static const int MAX_SAMPLES = 100;
     float oscillations[MAX_SAMPLES];
     float pressures[MAX_SAMPLES];
     int count;
-    
     PulseBuffer() : count(0) {}
-    
-    void reset() {
-        count = 0;
-    }
-    
+    void reset() { count = 0; }
     void addSample(float osc, float pressure) {
         if (count < MAX_SAMPLES) {
             oscillations[count] = osc;
@@ -82,214 +55,99 @@ struct PulseBuffer {
             count++;
         }
     }
-    
-    // Integrate area above linear baseline connecting first and last samples
     float integrateEnergy() const {
-        if (count < 3) return 0.0f;  // Need at least 3 points
-        
+        if (count < 3) return 0.0f;
         float startOsc = oscillations[0];
-        float endOsc = oscillations[count - 1];
-        
-        // Calculate area above linear baseline
+        float endOsc   = oscillations[count - 1];
         float area = 0.0f;
         for (int i = 0; i < count; i++) {
-            // Linear interpolation of baseline at this sample
             float t = (float)i / (float)(count - 1);
             float baseline = startOsc + t * (endOsc - startOsc);
-            
-            // Area contribution (trapezoidal rule)
-            float heightAboveBaseline = oscillations[i] - baseline;
-            if (heightAboveBaseline > 0.0f) {
-                area += heightAboveBaseline;
-            }
+            float h = oscillations[i] - baseline;
+            if (h > 0.0f) area += h;
         }
-        
         return area;
     }
-    
-    // Get average cuff pressure during this pulse
     float averagePressure() const {
         if (count == 0) return 0.0f;
-        
         float sum = 0.0f;
-        for (int i = 0; i < count; i++) {
-            sum += pressures[i];
-        }
+        for (int i = 0; i < count; i++) sum += pressures[i];
         return sum / (float)count;
     }
 };
 
-MAPDetector::MAPDetector()
-    : trendIdx(0),
-      trendCount(0),
-      lastPressure(0.0f),
-      lastOscillation(0.0f),
-      lastPeakTime(0),
-      inPotentialPeak(false),
-      peakCandidateValue(0.0f),
-      peakCandidatePressure(0.0f),
-      beatCount(0),
-      mapPressure(-1.0f),
-      systolicPressure(-1.0f),
-      diastolicPressure(-1.0f),
-      systolicRatio(0.55f),
-      diastolicRatio(0.85f),
-      minPeakAmplitude(0.5f),      // Lower threshold for integration method
-      maxReasonableAmplitude(50.0f), // Higher ceiling (we're integrating, not peak detecting)
-      wasRising(false),
-      filtersSettled(false),
-      filterSettleCount(0),
-      initializationPhase(true),
-      lastDerivative(0.0f),
-      inPulse(false),
-      pulseBuffer(nullptr)
+
+MAPDetector::MAPDetector() :
+    trendIdx(0), trendCount(0),
+    lastOscillation(0.0f), lastDerivative(0.0f),
+    lastPeakTime(0), beatCount(0),
+    mapPressure(-1.0f), systolicPressure(-1.0f), diastolicPressure(-1.0f),
+    systolicRatio(0.55f), diastolicRatio(0.85f),
+    minPeakAmplitude(0.5f), maxReasonableAmplitude(50.0f),
+    initializationPhase(true), filterSettleCount(0),
+    inPulse(false)
 {
     memset(trendBuffer, 0, sizeof(trendBuffer));
     memset(beats, 0, sizeof(beats));
     pulseBuffer = new PulseBuffer();
 }
 
-MAPDetector::~MAPDetector()
-{
-    if (pulseBuffer) {
-        delete pulseBuffer;
-        pulseBuffer = nullptr;
-    }
-}
+MAPDetector::~MAPDetector() { delete pulseBuffer; }
 
 void MAPDetector::reset()
 {
-    trendIdx = 0;
-    trendCount = 0;
-    lastPressure = 0.0f;
-    lastOscillation = 0.0f;
+    trendIdx = trendCount = 0;
+    lastOscillation = lastDerivative = 0;
     lastPeakTime = 0;
-    inPotentialPeak = false;
-    peakCandidateValue = 0.0f;
-    peakCandidatePressure = 0.0f;
     beatCount = 0;
-    mapPressure = -1.0f;
-    systolicPressure = -1.0f;
-    diastolicPressure = -1.0f;
-    wasRising = false;
-    filtersSettled = false;
-    filterSettleCount = 0;
+    mapPressure = systolicPressure = diastolicPressure = -1;
     initializationPhase = true;
-    lastDerivative = 0.0f;
+    filterSettleCount = 0;
     inPulse = false;
-
-    memset(trendBuffer, 0, sizeof(trendBuffer));
-    memset(beats, 0, sizeof(beats));
-
-    if (pulseBuffer) {
-        pulseBuffer->reset();
-    }
-
-    g_oscFilter.reset();
+    pulseBuffer->reset();
     g_cuffTrend.reset();
 }
 
-void MAPDetector::setSystolicRatio(float r) { systolicRatio = r; }
-void MAPDetector::setDiastolicRatio(float r) { diastolicRatio = r; }
-void MAPDetector::setMinPeakAmplitude(float a) { minPeakAmplitude = a; }
-void MAPDetector::setMaxReasonableAmplitude(float a) { maxReasonableAmplitude = a; }
-
-void MAPDetector::addSample(float pressure, unsigned long timestamp)
+void MAPDetector::addSample(float pressure, float osc, unsigned long timestamp)
 {
-    // === INITIALIZATION PHASE ===
+    // Let pressure trend settle
+    float cuffTrend = g_cuffTrend.update(pressure);
+
+    // Give filters time to stabilize
     if (initializationPhase) {
         filterSettleCount++;
-        
-        // Feed filters but don't process
-        g_oscFilter.filter(pressure);
-        g_cuffTrend.update(pressure);
-        
-        // Wait for 100 samples (~2 seconds at 50Hz)
-        if (filterSettleCount >= 100) {
-            initializationPhase = false;
-            filtersSettled = true;
-        }
-        
-        lastOscillation = 0.0f;
-        lastDerivative = 0.0f;
+        if (filterSettleCount > 100) initializationPhase = false;
+        lastOscillation = osc;
         return;
     }
-    
-    // === NORMAL PROCESSING ===
-    
-    // Track cuff pressure trend
-    float cuffTrend = g_cuffTrend.update(pressure);
-    
-    // Band-pass filter to extract oscillations
-    float osc = g_oscFilter.filter(pressure);
-    
-    // Calculate derivative (rate of change) to detect pulse starts
+
     float derivative = osc - lastOscillation;
-    
-    // Threshold for detecting pulse start: strong positive derivative
-    // This indicates the rapid upstroke of a cardiac pulse
-    const float DERIVATIVE_THRESHOLD = 0.15f;  // Tunable based on your signal
-    
-    // Refractory period check
-    bool refractoryOK = (lastPeakTime == 0) || 
+    const float DERIVATIVE_THRESHOLD = 0.15f;
+
+    bool refractoryOK = (lastPeakTime == 0) ||
                         ((timestamp - lastPeakTime) >= MIN_BEAT_INTERVALS_MS);
-    
-    // Detect pulse start: derivative crosses threshold (rising edge detection)
-    bool pulseStartDetected = false;
-    if (derivative > DERIVATIVE_THRESHOLD && 
-        lastDerivative <= DERIVATIVE_THRESHOLD && 
-        refractoryOK) {
-        pulseStartDetected = true;
-    }
-    
-    // === STATE MACHINE ===
-    
-    if (pulseStartDetected) {
-        // Process previous pulse if we collected data
+
+    bool pulseStart = (derivative > DERIVATIVE_THRESHOLD &&
+                       lastDerivative <= DERIVATIVE_THRESHOLD &&
+                       refractoryOK);
+
+    if (pulseStart) {
         if (inPulse && pulseBuffer->count >= 3) {
-            // Integrate energy above baseline
             float energy = pulseBuffer->integrateEnergy();
             float avgPressure = pulseBuffer->averagePressure();
-            
-            // Validate and record
             if (energy >= minPeakAmplitude && energy <= maxReasonableAmplitude) {
                 recordBeat(avgPressure, energy, timestamp);
                 lastPeakTime = timestamp;
             }
         }
-        
-        // Start new pulse
         pulseBuffer->reset();
         inPulse = true;
     }
-    
-    // Accumulate samples during pulse
-    if (inPulse) {
-        pulseBuffer->addSample(osc, cuffTrend);
-    }
-    
-    // Update state
+
+    if (inPulse) pulseBuffer->addSample(osc, cuffTrend);
+
     lastOscillation = osc;
-    lastDerivative = derivative;
-    lastPressure = cuffTrend;
-}
-
-// Legacy functions kept for interface compatibility
-float MAPDetector::extractTrend(float pressure)
-{
-    trendBuffer[trendIdx] = pressure;
-    trendIdx = (trendIdx + 1) % TREND_WINDOW;
-    if (trendCount < TREND_WINDOW) trendCount++;
-
-    float sum = 0.0f;
-    for (int i = 0; i < trendCount; ++i) sum += trendBuffer[i];
-    return sum / (float)trendCount;
-}
-
-float MAPDetector::calcOscillation(float pressure, float trend)
-{
-    (void)trend;
-    return pressure;
+    lastDerivative  = derivative;
 }
 
 void MAPDetector::recordBeat(float pressure, float amplitude, unsigned long timestamp)

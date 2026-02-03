@@ -1,5 +1,5 @@
 #include "DataLogger.h"
-#include <cstdio>  // for sprintf/snprintf
+#include <cstdio>
 
 DataLogger::DataLogger(ILogger* logger, BPMonitor* monitor)
     : logger(logger), monitor(monitor) {}
@@ -7,40 +7,31 @@ DataLogger::DataLogger(ILogger* logger, BPMonitor* monitor)
 void DataLogger::printHeader()
 {
     logger->log("Time,Pressure,PPGSignal,rawPPGSignal");
-    
+
     for (int i = 0; i < monitor->getDetectorCount(); i++)
     {
         logger->log(",");
         logger->log(monitor->getDetector(i)->getName());
     }
-    
     logger->logLine("");
 }
 
-void DataLogger::printMeasurement(const BPMeasurement& measurement)
+void DataLogger::printMeasurement(const BPMeasurement& m)
 {
     char buffer[32];
 
-    // Time
-    snprintf(buffer, sizeof(buffer), "%lu", measurement.timestamp);
-    logger->log(buffer);
-    logger->log(",");
+    snprintf(buffer, sizeof(buffer), "%lu", m.timestamp);
+    logger->log(buffer); logger->log(",");
 
-    // Pressure
-    snprintf(buffer, sizeof(buffer), "%.2f", measurement.pressure); 
-    logger->log(buffer);
-    logger->log(",");
+    snprintf(buffer, sizeof(buffer), "%.2f", m.pressure);
+    logger->log(buffer); logger->log(",");
 
-    // PPG
-    snprintf(buffer, sizeof(buffer), "%d", measurement.ppgSignal);
-    logger->log(buffer);
-    logger->log(",");
+    snprintf(buffer, sizeof(buffer), "%d", m.ppgSignal);
+    logger->log(buffer); logger->log(",");
 
-    // Raw PPG
-    snprintf(buffer, sizeof(buffer), "%d", measurement.rawPPGSignal);
+    snprintf(buffer, sizeof(buffer), "%d", m.rawPPGSignal);
     logger->log(buffer);
 
-    // Detectors - show best detection pressure for each
     for (int i = 0; i < monitor->getDetectorCount(); i++)
     {
         logger->log(",");
@@ -61,61 +52,17 @@ void DataLogger::printComment(const char* comment)
 void DataLogger::printReport()
 {
     char buffer[128];
-    
-    logger->logLine("");
-    logger->logLine("=== Blood Pressure Measurement Report ===");
-    
-    snprintf(buffer, sizeof(buffer), "Max Pressure: %.1f mmHg", 
-             monitor->getStatus().maxPressure);
+
+    logger->logLine("\n=== BP Measurement Report ===");
+
+    float sys = monitor->getSystolic();
+    float map = monitor->getMAP();
+
+    snprintf(buffer, sizeof(buffer), "Systolic: %.0f mmHg", sys);
     logger->logLine(buffer);
-    logger->logLine("");
-    
-    // Find overall best
-    float bestConfidence = 0;
-    float bestPressure = monitor->getBestSystolic(&bestConfidence);
-    
-    snprintf(buffer, sizeof(buffer), "BEST READING: %.0f mmHg (confidence: %.2f)",
-             bestPressure, bestConfidence);
+
+    snprintf(buffer, sizeof(buffer), "MAP: %.0f mmHg", map);
     logger->logLine(buffer);
-    logger->logLine("");
-    
-    logger->logLine("--- Detector Details ---");
-    
-    for (int i = 0; i < monitor->getDetectorCount(); i++)
-    {
-        SystolicDetector* det = monitor->getDetector(i);
-        logger->logLine("");
-        
-        snprintf(buffer, sizeof(buffer), "%s:", det->getName());
-        logger->logLine(buffer);
-        
-        snprintf(buffer, sizeof(buffer), "  Total detections: %d", 
-                 det->getDetectionCount());
-        logger->logLine(buffer);
-        
-        // Get top 3 detections
-        DetectionRecord top[3];
-        int topCount = 0;
-        det->getTopDetections(top, 3, &topCount);
-        
-        if (topCount > 0)
-        {
-            logger->logLine("  Top detections:");
-            for (int j = 0; j < topCount; j++)
-            {
-                snprintf(buffer, sizeof(buffer), 
-                         "    #%d: %.0f mmHg @ %lums (conf: %.2f, %d consecutive beats)",
-                         j + 1, top[j].pressure, top[j].timestamp,
-                         top[j].confidence, top[j].subsequentBeats);
-                logger->logLine(buffer);
-            }
-        }
-        else
-        {
-            logger->logLine("  No valid detections");
-        }
-    }
-    
-    logger->logLine("");
-    logger->logLine("========================================");
+
+    logger->logLine("=============================");
 }
