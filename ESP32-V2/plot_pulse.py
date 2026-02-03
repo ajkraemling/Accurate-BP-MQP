@@ -1,6 +1,14 @@
 # ============================================================================
-# Blood Pressure Monitor - Live Data Visualization and CSV Logger
+# Blood Pressure Monitor - Live Plot + CSV Logger (FAST STREAM VERSION)
+# Works with firmware that sends:
+#
+#   time,pressure,rawPPG,ppg     (continuous)
+#   #SUMMARY_START
+#   Detector,timestamp,pressure,confidence
+#   ...
+#   #SUMMARY_END
 # ============================================================================
+
 import serial
 import time
 import csv
@@ -8,13 +16,16 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from collections import deque
 import os
-import numpy as np
 
 # ============================================================================
-# SERIAL PORT CONFIGURATION
+# SERIAL SETUP
 # ============================================================================
 
-ser = serial.Serial('COM6', 115200, timeout=1)
+PORT = 'COM6'
+BAUD = 115200
+
+ser = serial.Serial(PORT, BAUD, timeout=1)
+
 ser.dtr = False
 ser.rts = False
 time.sleep(0.2)
@@ -25,240 +36,161 @@ time.sleep(0.2)
 ser.reset_input_buffer()
 ser.reset_output_buffer()
 
-print("Waiting for calibration...\n")
+print("Connected to serial")
+
+# ============================================================================
+# WAIT FOR HEADER
+# ============================================================================
+
+print("Waiting for stream header...")
 
 while True:
-    try:
-        line = ser.readline().decode(errors='ignore').strip()
-        if not line:
-            continue
-        print(line)
-        if "Calibration complete" in line:
-            print("\nCalibration complete!\n")
-            break
-    except UnicodeDecodeError:
+    line = ser.readline().decode(errors='ignore').strip()
+    if not line:
         continue
 
-csv_header = None
-detector_names = []
+    print(line)
 
-while True:
-    try:
-        line = ser.readline().decode(errors='ignore').strip()
-        if not line:
-            continue
-        print(line)
+    if line.startswith("time,pressure,rawPPG,ppg"):
+        break
 
-        if line.startswith("Time,Pressure,PPGSignal,rawPPGSignal"):
-            csv_header = line
-            parts = line.split(',')
-            detector_names = parts[3:]
+print("Streaming started\n")
 
-            print(f"\nDetected {len(detector_names)} algorithms:")
-            for i, name in enumerate(detector_names):
-                print(f"  {i+1}. {name}")
-            print("\nStarting...\n")
-            break
-    except UnicodeDecodeError:
-        continue
+# ============================================================================
+# CSV FILES
+# ============================================================================
 
-csv_filename = f"data/bp_data_{int(time.time())}.csv"
+os.makedirs("data", exist_ok=True)
+
+timestamp_str = str(int(time.time()))
+csv_filename = f"data/bp_data_{timestamp_str}.csv"
+summary_filename = f"data/bp_data_{timestamp_str}_summary.csv"
+
 csv_file = open(csv_filename, 'w', newline='')
 csv_writer = csv.writer(csv_file)
-csv_writer.writerow(csv_header.split(','))
 
-window = 200
+csv_writer.writerow(["time","pressure","rawPPG","ppg"])
+
+summary_rows = []
+in_summary = False
+
+# ============================================================================
+# PLOTTING SETUP
+# ============================================================================
+
+window = 300
 
 ppg = deque([0.0]*window, maxlen=window)
 raw_ppg = deque([0.0]*window, maxlen=window)
 pressure = deque([0.0]*window, maxlen=window)
-detection_data = {name: deque([0.0]*window, maxlen=window) for name in detector_names}
 
-# ============================================================================
-# FIGURE LAYOUT - TWO COLUMNS
-# ============================================================================
+fig = plt.figure(figsize=(12, 8))
+gs = fig.add_gridspec(2, 1, height_ratios=[1,1])
 
-fig = plt.figure(figsize=(16, 12))
-gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1.2], hspace=0.5, wspace=0.3)
+# ---------------- PPG ----------------
+ax_ppg = fig.add_subplot(gs[0])
+line_ppg, = ax_ppg.plot(ppg, label="Filtered PPG")
+line_raw, = ax_ppg.plot(raw_ppg, alpha=0.6, label="Raw PPG")
 
-# ---------------------------------------------------------------------------
-# PPG Plot (Top-left)
-# ---------------------------------------------------------------------------
-ax_ppg = fig.add_subplot(gs[0, 0])
-line_ppg, = ax_ppg.plot(ppg, color='tab:blue')
-line_rawppg, = ax_ppg.plot(raw_ppg, color='tab:green', alpha=0.6, label='Raw PPG')
-ax_ppg.legend(loc='upper left')
 ax_ppg.set_ylim(-2000, 2000)
-ax_ppg.set_title("PPG Signal")
-ax_ppg.set_xlabel("Samples")
-ax_ppg.set_ylabel("Amplitude")
-text_ppg = ax_ppg.text(0.95, 0.95, '', transform=ax_ppg.transAxes,
-                       ha='right', va='top', fontsize=10, color='red')
+ax_ppg.set_title("PPG Signals")
+ax_ppg.legend()
 
-# ---------------------------------------------------------------------------
-# Pressure Plot (Top-right)
-# ---------------------------------------------------------------------------
-ax_pressure = fig.add_subplot(gs[0, 1])
-line_pressure, = ax_pressure.plot(pressure, color='tab:orange')
+# ---------------- Pressure ----------------
+ax_pressure = fig.add_subplot(gs[1])
+line_pressure, = ax_pressure.plot(pressure)
+
 ax_pressure.set_ylim(0, 250)
-ax_pressure.set_title("Pressure")
-ax_pressure.set_xlabel("Samples")
-ax_pressure.set_ylabel("mmHg")
-text_pressure = ax_pressure.text(0.95, 0.95, '', transform=ax_pressure.transAxes,
-                                 ha='right', va='top', fontsize=10, color='red')
-
-# ---------------------------------------------------------------------------
-# Combined Plot (Bottom, spans two columns)
-# ---------------------------------------------------------------------------
-ax_combined = fig.add_subplot(gs[1, :])
-line_comb_ppg, = ax_combined.plot(ppg, color='tab:blue', alpha=0.7, label='PPG')
-line_comb_rawppg, = ax_combined.plot(raw_ppg, color='tab:green', alpha=0.5, label='Raw PPG')
-
-ax2 = ax_combined.twinx()
-line_comb_pressure, = ax2.plot(pressure, color='tab:red', alpha=0.7, label='Pressure')
-
-ax_combined.set_title("Combined View (Dual Axis)")
-ax_combined.set_xlabel("Samples")
-ax_combined.set_ylabel("PPG Amplitude")
-ax2.set_ylabel("Pressure (mmHg)")
-
-# FIXED AXIS RANGES
-ax_combined.set_ylim(-2000, 2000)
-ax2.set_ylim(0, 220)
-
-# Text overlays for real-time values
-text_comb_ppg = ax_combined.text(
-    0.02, 0.95, "", transform=ax_combined.transAxes,
-    ha="left", va="top", fontsize=10, color="blue"
-)
-text_comb_pressure = ax2.text(
-    0.98, 0.95, "", transform=ax2.transAxes,
-    ha="right", va="top", fontsize=10, color="red"
-)
-
-# ---------------------------------------------------------------------------
-# TEXT PANEL - split into two columns
-# ---------------------------------------------------------------------------
-# ax_text = fig.add_axes([0.01, 0.01, 0.98, 0.15])  # fixed axes below plots
-ax_text = fig.add_subplot(gs[2, :])
-ax_text.axis('off')
-
-# Create initial text content
-initial_text = "Detector Values Will Appear Here..."
-text_box = ax_text.text(
-    0.0, 1.0,
-    initial_text,
-    fontsize=11,
-    va='top',
-    ha='left',
-    family='monospace',
-)
+ax_pressure.set_title("Pressure (mmHg)")
 
 # ============================================================================
-# LIVE UPDATE LOOP
+# UPDATE LOOP
 # ============================================================================
 
 def update(frame):
-    for _ in range(5):
+    global in_summary
+
+    for _ in range(10):
+
         if not ser.in_waiting:
             break
 
         line = ser.readline().decode(errors='ignore').strip()
-        if not line or ',' not in line:
+        if not line:
+            continue
+
+        # --------------------------------------------------
+        # SUMMARY SECTION
+        # --------------------------------------------------
+        if line == "#SUMMARY_START":
+            print("Receiving summary...")
+            in_summary = True
+            continue
+
+        if line == "#SUMMARY_END":
+            print("Summary complete")
+            in_summary = False
+            continue
+
+        if in_summary:
+            parts = line.split(',')
+            if len(parts) == 4:
+                summary_rows.append(parts)
+            continue
+
+        # --------------------------------------------------
+        # NORMAL DATA
+        # --------------------------------------------------
+        if ',' not in line:
             continue
 
         try:
             parts = line.split(',')
-            timestamp = float(parts[0])
+
+            t = float(parts[0])
             pres = float(parts[1])
-            ppg_val = float(parts[2])
-            raw_ppg_val = float(parts[3])
+            raw = float(parts[2])
+            ppg_val = float(parts[3])
 
-            det_vals = []
-            for v in parts[4:]:
-                try:
-                    det_vals.append(float(v))
-                except:
-                    det_vals.append(0)
-
-            # Update buffers
             ppg.append(ppg_val)
-            raw_ppg.append(raw_ppg_val)
+            raw_ppg.append(raw)
             pressure.append(pres)
-
-            for i, name in enumerate(detector_names):
-                detection_data[name].append(det_vals[i] if i < len(det_vals) else 0)
 
             csv_writer.writerow(parts)
 
         except:
-            continue
+            pass
 
-    # Update plots
+    # update plots
     x = range(len(ppg))
     line_ppg.set_data(x, ppg)
-    line_rawppg.set_data(x, raw_ppg)
-    line_comb_rawppg.set_data(x, raw_ppg)
+    line_raw.set_data(x, raw_ppg)
     line_pressure.set_data(x, pressure)
-    line_comb_ppg.set_data(x, ppg)
-    line_comb_pressure.set_data(x, pressure)
 
-
-    ax_combined.relim()
-    ax_combined.autoscale_view()
-    ax2.relim()
-    ax2.autoscale_view()
-
-    # Update numerical readouts
-    text_ppg.set_text(f'{ppg[-1]:.1f}')
-    text_pressure.set_text(f'{pressure[-1]:.1f} mmHg')
-    text_comb_ppg.set_text(f"PPG: {ppg[-1]:.1f}")
-    text_comb_pressure.set_text(f"Pressure: {pressure[-1]:.1f} mmHg")
-
-    # Update text box - up to 4 columns, 10 detectors each
-    col1, col2, col3, col4 = [], [], [], []
-    for i, name in enumerate(detector_names):
-        line = f"{name:20s}: {detection_data[name][-1]:8.2f}"
-        if i < 10:
-            col1.append(line)
-        elif i < 20:
-            col2.append(line)
-        elif i < 30:
-            col3.append(line)
-        elif i < 40:
-            col4.append(line)
-
-    # Pad columns so they all have equal height
-    max_len = max(len(col1), len(col2), len(col3), len(col4))
-    for col in (col1, col2, col3, col4):
-        while len(col) < max_len:
-            col.append("")
-
-    # Combine into rows
-    combined_lines = [
-        f"{l1}      {l2}      {l3}      {l4}"
-        for l1, l2, l3, l4 in zip(col1, col2, col3, col4)
-    ]
-
-    text_box.set_text("\n".join(combined_lines))
-
-    return [
-        line_ppg, line_rawppg,
-        line_pressure,
-        line_comb_ppg, line_comb_rawppg, line_comb_pressure,
-        text_box
-    ]
+    return line_ppg, line_raw, line_pressure
 
 
 # ============================================================================
-# Cleanup on close
+# CLEANUP
 # ============================================================================
+
 def on_close(event):
     csv_file.close()
+
+    if summary_rows:
+        with open(summary_filename, 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(["Detector","Timestamp","Pressure","Confidence"])
+            w.writerows(summary_rows)
+
+        print("Saved summary:", summary_filename)
+
     ser.close()
-    print(f"\nSaved: {csv_filename}")
+    print("Saved raw data:", csv_filename)
+
 
 fig.canvas.mpl_connect('close_event', on_close)
 
-ani = animation.FuncAnimation(fig, update, interval=50, blit=False)
+ani = animation.FuncAnimation(fig, update, interval=40, blit=False)
+
 plt.show()

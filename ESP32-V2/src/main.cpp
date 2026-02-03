@@ -32,7 +32,6 @@ BPState lastState = IDLE;
 int runNumber = 1;
 
 // Setup
-
 void setup()
 {
     Serial.begin(115200);
@@ -62,12 +61,11 @@ void setup()
         }
     }
 
-    Serial.print("Detectors active: ");
-    Serial.println(bpMonitor.getDetectorCount());
-
     bpMonitor.reset();
-}
 
+    // Print headers
+    Serial.println("Time,Pressure,PPGSignal,rawPPGSignal");
+}
 
 void loop()
 {
@@ -85,70 +83,88 @@ void loop()
     // Update sensors
     bpMonitor.update(measurement);
 
-    //Oscillmetric tracking
-    float oscAmp = bpMonitor.getMAPDetector()->getLatestAmplitude();
-
-    float mapP = bpMonitor.getMAPDetector()->getMAP();
-    float sysP = bpMonitor.getMAPDetector()->getSystolic();
-    float diaP = bpMonitor.getMAPDetector()->getDiastolic();
-
-    if (mapP > 0 && pressure <= mapP) lastMAP = mapP;
-    if (sysP > 0 && pressure <= sysP) lastSys = sysP;
-    if (diaP > 0 && pressure <= diaP) lastDia = diaP;
-
     // Update display screen
-    BPStatus status = bpMonitor.getStatus();
-    presenter.showStatus(status);
+    presenter.showStatus(bpMonitor.getStatus());
 
-    //serial outputs (dor debugging)
-    Serial.print("P=");
-    Serial.print(pressure, 1);
-    Serial.print("  Osc=");
-    Serial.print(oscAmp, 2);
-    Serial.print("  MAP=");
-    Serial.print(lastMAP, 0);
-    Serial.print("  Sys=");
-    Serial.print(lastSys, 0);
-    Serial.print("  Dia=");
-    Serial.print(lastDia, 0);
+    // Serial outputs
+    Serial.print(measurement.timestamp);
+    Serial.print(",");
+    Serial.print(pressure, 2);
+    Serial.print(",");
+    Serial.print(rawPPG);
+    Serial.print(",");
+    Serial.println(filteredPPG);
 
-    BPResult ensemble = bpMonitor.getEnsembleResult();
-    if (ensemble.systolic > 0) {
-        Serial.print("  Ensemble=");
-        Serial.print(ensemble.systolic, 0);
-        Serial.print("  Conf=");
-        Serial.print(ensemble.confidence, 3);
-    }
-    Serial.println();
-
-    //Complete function - State Machine status change 
+    // Complete function - State Machine status change 
     BPState currentState = bpMonitor.getState();
 
     if (lastState != COMPLETE && currentState == COMPLETE)
     {
-        Serial.println("\n===== MEASUREMENT COMPLETE =====");
+        Serial.println("#SUMMARY_START");
+
+        int detectorCount = bpMonitor.getDetectorCount();
+
+        for (int i = 0; i < detectorCount; i++)
+        {
+            SystolicDetector* det = bpMonitor.getDetector(i);
+
+            const char* name = det->getName();
+
+            // pull all detections
+            DetectionRecord detections[20];
+            int count = 0;
+
+            det->getTopDetections(detections, 20, &count);
+
+            for (int k = 0; k < count; k++)
+            {
+                if (detections[k].confidence <= 0)
+                    continue;
+
+                Serial.print(name);
+                Serial.print(",");
+                Serial.print(detections[k].timestamp);
+                Serial.print(",");
+                Serial.print(detections[k].pressure, 0);
+                Serial.print(",");
+                Serial.println(detections[k].confidence, 3);
+            }
+        }
 
         float map = bpMonitor.getMAP();
         BPResult result = bpMonitor.getEnsembleResult();
 
-        Serial.print("Run #");
-        Serial.println(runNumber++);
-        Serial.print("Final Systolic: ");
-        Serial.println(result.systolic, 0);
-        Serial.print("MAP: ");
-        Serial.println(map, 0);
+        // Print Ensemble Result
+        Serial.print("Ensemble,0,");
+        Serial.print(result.systolic, 0);
+        Serial.println(",0");
 
-        if (result.systolic > 0 && map > 0) {
-            float DBP = (3.0f * map - result.systolic) / 2.0f;
-            Serial.print("Estimated Diastolic: ");
-            Serial.println(DBP, 0);
-        }
+        // Print Oscillometric results
+        MAPDetector* osc = bpMonitor.getMAPDetector();
 
-        Serial.println("================================");
+        Serial.print("OscSys,0,");
+        Serial.print(osc->getSystolic(), 0);
+        Serial.println(",0");
+
+        Serial.print("OscMAP,0,");
+        Serial.print(osc->getMAP(), 0);
+        Serial.println(",0");
+
+        Serial.print("OscDia,0,");
+        Serial.print(osc->getDiastolic(), 0);
+        Serial.println(",0");
+
+        // Get ensemble estimated diastolic
+        float DBP = (3.0f * map - result.systolic) / 2.0f;
+        Serial.print("EstDia,0,");
+        Serial.print(DBP, 0);
+        Serial.println(",0");
+
+        Serial.println("#SUMMARY_END");
 
         presenter.showStatus(bpMonitor.getStatus());
 
-
+        // Complete measurement
         while (true) {
             delay(1000);
         }
