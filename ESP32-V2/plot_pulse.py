@@ -214,9 +214,22 @@ def update(frame):
             continue
         
         if line == "#SUMMARY_END":
-            print(f"✓ Summary complete ({len(summary_rows)} detections)\n")
+            print(f"✓ Summary complete ({len(summary_rows)} detections)")
+
+            # ----- WRITE SUMMARY IMMEDIATELY -----
+            csv_writer.writerow([])  # blank line
+            csv_writer.writerow(["#SUMMARY_START"])
+            csv_writer.writerow(["Detector","Timestamp","Pressure","Confidence"])
+            csv_writer.writerows(summary_rows)
+            csv_writer.writerow(["#SUMMARY_END"])
+
+            csv_file.flush()        # <-- FORCE DISK WRITE
+            os.fsync(csv_file.fileno())  # <-- extra safe (optional but recommended)
+
+            summary_rows.clear()    # free memory
             in_summary = False
             continue
+
         
         if in_summary:
             parts = line.split(',')
