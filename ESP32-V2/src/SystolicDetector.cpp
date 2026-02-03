@@ -5,7 +5,7 @@
 
 // Base class implementation
 SystolicDetector::SystolicDetector(const char* detectorName)
-    : name(detectorName), lastSignal(0), lastPulseState(false),
+    : name("asd"), lastSignal(0), lastPulseState(false),
       detectionCount(0), lastBeatTime(0), intervalCount(0)
 {
     memset(detections, 0, sizeof(detections));
@@ -287,7 +287,6 @@ void SystolicDetector::getTopDetections(DetectionRecord* output, int maxCount, i
     memcpy(output, sorted, count * sizeof(DetectionRecord));
     *actualCount = count;
 }
-
 // BaselineDetector implementation
 BaselineDetector::BaselineDetector(int window, float threshold, int minDev)
     : SystolicDetector(nullptr), windowSize(window), thresholdMultiplier(threshold),

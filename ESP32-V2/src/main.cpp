@@ -37,6 +37,7 @@ void setup()
     Serial.begin(115200);
     Wire.begin();
 
+    Serial.println("Start");
     // sensors
     pressureSensor.begin();
     pressureSensor.calibrate();
@@ -56,6 +57,13 @@ void setup()
     for (int w : windows) {
         for (float t : thresholds) {
             for (int h : holds) {
+                Serial.print("Detector: ");
+                Serial.print(w);
+                Serial.print(" ");
+                Serial.print(t);
+                Serial.print(" ");
+                Serial.println(h);
+
                 bpMonitor.addDetector(new BaselineDetector(w, t, h));
             }
         }
@@ -131,7 +139,6 @@ void loop()
             }
         }
 
-        float map = bpMonitor.getMAP();
         BPResult result = bpMonitor.getEnsembleResult();
 
         // Print Ensemble Result
@@ -155,6 +162,7 @@ void loop()
         Serial.println(",0");
 
         // Get ensemble estimated diastolic
+        float map = bpMonitor.getMAP();
         float DBP = (3.0f * map - result.systolic) / 2.0f;
         Serial.print("EstDia,0,");
         Serial.print(DBP, 0);

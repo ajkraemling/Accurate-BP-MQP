@@ -1,7 +1,8 @@
-#ifndef PULSE_DETECTOR_H
-#define PULSE_DETECTOR_H
+#ifndef SYSTOLIC_DETECTOR_H
+#define SYSTOLIC_DETECTOR_H
 #include "EnvelopeSmoother.h"
 #include "config.h"
+
 
 struct DetectionRecord
 {

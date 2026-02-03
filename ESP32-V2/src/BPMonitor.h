@@ -1,9 +1,9 @@
 #ifndef BP_MONITOR_H
 #define BP_MONITOR_H
-
 #include "SystolicDetector.h"
 #include "filters.h"
 #include "MAPDetector.h"
+#include "config.h"
 
 enum BPState
 {
@@ -48,7 +48,6 @@ private:
     float maxPressure;
     unsigned long startTime;
 
-    static const int MAX_DETECTORS = 2000;
     static const int MAX_READINGS_PER_DETECTOR = 50;
     SystolicDetector *detectors[MAX_DETECTORS];
     int detectorCount;

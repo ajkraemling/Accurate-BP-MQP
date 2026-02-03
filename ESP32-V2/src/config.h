@@ -32,6 +32,7 @@
 #define HPA_TO_MMHG 0.75006157584566
 
 // Ensemble Reporting
-#define MAX_DETECTIONS 100000
+#define MAX_DETECTIONS 50
+#define MAX_DETECTORS 100
 
 #endif
