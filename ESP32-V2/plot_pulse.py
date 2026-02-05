@@ -96,7 +96,7 @@ try:
     
     csv_file = open(csv_filename, 'w', newline='')
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(["time","pressure","rawPPG","ppg"])
+    csv_writer.writerow(["Time","Pressure","PPGSignal","rawPPGSignal"])
     
     print(f"✓ CSV file: {csv_filename}")
     

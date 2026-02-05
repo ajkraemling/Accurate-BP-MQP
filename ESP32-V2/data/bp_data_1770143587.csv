@@ -1,4 +1,4 @@
-time,pressure,rawPPG,ppg
+Time,Pressure,PPGSignal,rawPPGSignal
 8300,-0.29,0,0
 8336,-0.29,0,0
 8372,-0.25,0,0
