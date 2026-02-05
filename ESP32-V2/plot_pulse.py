@@ -121,6 +121,7 @@ ppg = deque([0.0]*window, maxlen=window)
 raw_ppg = deque([0.0]*window, maxlen=window)
 raw_ppg_scaled = deque([0.0]*window, maxlen=window)  # For scaled display
 pressure = deque([0.0]*window, maxlen=window)
+button_ppg = deque([0.0]*window, maxlen=window)
 
 fig = plt.figure(figsize=(16, 10))
 gs = fig.add_gridspec(2, 2, height_ratios=[1.5, 1], width_ratios=[1, 1], hspace=0.35, wspace=0.3)
@@ -164,6 +165,7 @@ ax_ppg = fig.add_subplot(gs[1, 0])
 line_ppg, = ax_ppg.plot(ppg, label="PPG (Filtered)", color='darkred', linewidth=1.5)
 line_raw_scaled, = ax_ppg.plot(raw_ppg_scaled, label="Raw PPG (scaled)", 
                                 color='lightcoral', alpha=0.7, linewidth=1)
+line_button, = ax_ppg.plot(button_ppg, color='tab:red')
 
 ax_ppg.set_ylim(-2000, 2000)
 ax_ppg.set_xlim(0, window)
@@ -251,6 +253,7 @@ def update(frame):
             pres = float(parts[1])
             raw = float(parts[2])
             ppg_val = float(parts[3])
+            button_val = float(parts[4]) * 500 - 1000
             
             # Update deques
             ppg.append(ppg_val)
@@ -258,6 +261,8 @@ def update(frame):
             # Scale raw PPG for combined view: subtract 2000 and scale down
             raw_ppg_scaled.append((raw - 2000) / 2.0)
             pressure.append(pres)
+            
+            button_ppg.append(button_val)
             
             # Write to CSV
             csv_writer.writerow(parts)
@@ -285,6 +290,8 @@ def update(frame):
     # Pressure view (bottom-right)
     line_pressure.set_data(x, pressure)
     
+    line_button.set_data(x, button_ppg)
+    
     # Update text displays
     if len(ppg) > 0:
         text_combined.set_text(f'PPG: {ppg[-1]:.1f} | Raw: {raw_ppg[-1]:.0f} | Pressure: {pressure[-1]:.1f} mmHg')
@@ -292,7 +299,7 @@ def update(frame):
         text_pressure.set_text(f'{pressure[-1]:.1f} mmHg')
     
     return (line_ppg_combined, line_raw_scaled_combined, line_pressure_combined, 
-            line_ppg, line_raw_scaled, line_pressure, 
+            line_ppg, line_raw_scaled, line_pressure, line_button,
             text_combined, text_ppg, text_pressure)
 
 # ============================================================================

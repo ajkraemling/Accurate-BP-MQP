@@ -33,6 +33,6 @@
 
 // Ensemble Reporting
 #define MAX_DETECTIONS 50
-#define MAX_DETECTORS 100
+#define MAX_DETECTORS 2000
 
 #endif

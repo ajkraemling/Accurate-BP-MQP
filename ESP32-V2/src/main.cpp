@@ -71,6 +71,8 @@ void setup()
 
     bpMonitor.reset();
 
+    pinMode(13, INPUT_PULLUP);
+
     // Print headers
     Serial.println("Time,Pressure,PPGSignal,rawPPGSignal");
 }
@@ -94,6 +96,9 @@ void loop()
     // Update display screen
     presenter.showStatus(bpMonitor.getStatus());
 
+    // Get auscultatory beat readings
+    int button_not_pressed = digitalRead(13);
+
     // Serial outputs
     Serial.print(measurement.timestamp);
     Serial.print(",");
@@ -101,7 +106,9 @@ void loop()
     Serial.print(",");
     Serial.print(rawPPG);
     Serial.print(",");
-    Serial.println(filteredPPG);
+    Serial.print(filteredPPG);
+    Serial.print(",");
+    Serial.println(button_not_pressed);
 
     // Complete function - State Machine status change 
     BPState currentState = bpMonitor.getState();

@@ -338,14 +338,12 @@ createComparisonTab(compTab, allRuns, allDetectors);
 
 % Create ground truth error analysis tab if applicable
 if runsWithGroundTruth > 0
-    gtTab = uitab(tabGroup, 'Title', 'Ground Truth Analysis');
-    createGroundTruthTab(gtTab, allRuns, allDetectors);
+    createGroundTruthTabGroup(tabGroup, allRuns, allDetectors);
 end
 
 % Create SBP reference error analysis tab if applicable
 if runsWithSBPRef > 0
-    sbpTab = uitab(tabGroup, 'Title', 'SBP Reference Analysis');
-    createSBPReferenceTab(sbpTab, allRuns, allDetectors);
+    createSBPReferenceTabGroup(tabGroup, allRuns, allDetectors);
 end
 
 blTab = uitab(tabGroup, 'Title', 'Baseline Analysis');
@@ -681,16 +679,14 @@ function createComparisonTab(parentTab, allRuns, allDetectors)
     set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels,'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
     ylim([0 110]);
 end
-function createGroundTruthTab(parentTab, allRuns, allDetectors)
+
+function createGroundTruthTabGroup(tabGroup, allRuns, allDetectors)
     % Filter to runs with ground truth
     runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
     numRuns = length(runsWithGT);
     numDetectors = length(allDetectors);
     
     if numRuns == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No runs with ground truth data found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
         return;
     end
     
@@ -712,47 +708,187 @@ function createGroundTruthTab(parentTab, allRuns, allDetectors)
     end
     
     % Calculate statistics
-    meanError = mean(errors, 2, 'omitnan');
-    stdError = std(errors, 0, 2, 'omitnan');
     meanAbsError = mean(absErrors, 2, 'omitnan');
     stdAbsError = std(absErrors, 0, 2, 'omitnan');
+    meanError = mean(errors, 2, 'omitnan');
     
-    % Create axes - only 2 plots now
-    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
-    ax4 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
-    
-    % Plot 1: Absolute error (top)
-    axes(ax2);
-    errorbar(1:numDetectors, meanAbsError, stdAbsError, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
-    grid on;
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Mean Absolute Error from Ground Truth ± Std Dev', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(allDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Plot 2: Ranking by absolute error (bottom)
-    axes(ax4);
+    % Sort by absolute error
     [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
     sortedDetectors = allDetectors(sortIdx);
-    sortedStdAbsError = stdAbsError(sortIdx);  % Sort the std deviations to match
+    sortedStdAbsError = stdAbsError(sortIdx);
+    sortedMeanError = meanError(sortIdx);
     
-    bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
-    hold on;
-    errorbar(1:numDetectors, sortedMAE, sortedStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
-    hold off;
+    % Determine number of pages needed (50 detectors per page)
+    detectorsPerPage = 50;
+    numPages = ceil(numDetectors / detectorsPerPage);
     
-    grid on;
-    xlabel('Detector (Ranked)', 'FontSize', 12);
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Detector Ranking by Accuracy', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(sortedDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Print summary
     fprintf('\n=== GROUND TRUTH ANALYSIS SUMMARY ===\n');
-    fprintf('Analyzed %d runs with ground truth data\n\n', numRuns);
-    fprintf('Detector Rankings by Mean Absolute Error:\n');
-    for i = 1:min(numDetectors, 10)
+    fprintf('Analyzed %d runs with ground truth data\n', numRuns);
+    fprintf('Creating %d page(s) for %d detectors\n\n', numPages, numDetectors);
+    
+    % Create a tab for each page
+    for pageNum = 1:numPages
+        startIdx = (pageNum - 1) * detectorsPerPage + 1;
+        endIdx = min(pageNum * detectorsPerPage, numDetectors);
+        numInPage = endIdx - startIdx + 1;
+        
+        % Create tab
+        if numPages == 1
+            tabName = 'Ground Truth Analysis';
+        else
+            tabName = sprintf('GT Analysis (Rank %d-%d)', startIdx, endIdx);
+        end
+        gtTab = uitab(tabGroup, 'Title', tabName);
+        
+        % Extract data for this page
+        pageDetectors = sortedDetectors(startIdx:endIdx);
+        pageMAE = sortedMAE(startIdx:endIdx);
+        pageStdAbsError = sortedStdAbsError(startIdx:endIdx);
+        
+        % Create axes
+        ax2 = axes('Parent', gtTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
+        ax4 = axes('Parent', gtTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
+        
+        % Plot 1: Absolute error with error bars (top)
+        axes(ax2);
+        errorbar(1:numInPage, pageMAE, pageStdAbsError, 'o-', 'LineStyle', 'none', ...
+            'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
+        grid on;
+        ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+        titleStr = sprintf('Mean Absolute Error from Ground Truth ± Std Dev (Rank %d-%d)', startIdx, endIdx);
+        title(titleStr, 'FontSize', 14);
+        shortLabels = shortenDetectorNames(pageDetectors);
+        set(gca, 'XTick', 1:numInPage, 'XTickLabel', shortLabels, ...
+            'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
+        
+        % Plot 2: Bar chart with error bars (bottom)
+        axes(ax4);
+        bar(pageMAE, 'FaceColor', [0.3 0.5 0.8]);
+        hold on;
+        errorbar(1:numInPage, pageMAE, pageStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
+        hold off;
+        
+        grid on;
+        xlabel('Detector (Ranked)', 'FontSize', 12);
+        ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+        titleStr = sprintf('Detector Ranking by Accuracy (Rank %d-%d)', startIdx, endIdx);
+        title(titleStr, 'FontSize', 14);
+        shortLabels = shortenDetectorNames(pageDetectors);
+        set(gca, 'XTick', 1:numInPage, 'XTickLabel', shortLabels, ...
+            'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
+    end
+    
+    % Print top 20 to console
+    fprintf('Top 20 Detector Rankings by Mean Absolute Error:\n');
+    for i = 1:min(20, numDetectors)
+        idx = sortIdx(i);
+        fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
+            i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
+    end
+    fprintf('\n');
+end
+
+function createSBPReferenceTabGroup(tabGroup, allRuns, allDetectors)
+    % Filter to runs with SBP reference
+    runsWithSBP = allRuns(cellfun(@(r) r.hasSBPReference, allRuns));
+    numRuns = length(runsWithSBP);
+    numDetectors = length(allDetectors);
+    
+    if numRuns == 0
+        return;
+    end
+    
+    % Extract errors
+    errors = nan(numDetectors, numRuns);
+    absErrors = nan(numDetectors, numRuns);
+    
+    for i = 1:numRuns
+        for j = 1:numDetectors
+            detName = allDetectors{j};
+            if isKey(runsWithSBP{i}.detections, detName)
+                detection = runsWithSBP{i}.detections(detName);
+                if detection.detected
+                    errors(j, i) = detection.sbpError;
+                    absErrors(j, i) = detection.sbpAbsError;
+                end
+            end
+        end
+    end
+    
+    % Calculate statistics
+    meanAbsError = mean(absErrors, 2, 'omitnan');
+    stdAbsError = std(absErrors, 0, 2, 'omitnan');
+    meanError = mean(errors, 2, 'omitnan');
+    
+    % Sort by absolute error
+    [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
+    sortedDetectors = allDetectors(sortIdx);
+    sortedStdAbsError = stdAbsError(sortIdx);
+    sortedMeanError = meanError(sortIdx);
+    
+    % Determine number of pages needed (50 detectors per page)
+    detectorsPerPage = 50;
+    numPages = ceil(numDetectors / detectorsPerPage);
+    
+    fprintf('\n=== SBP REFERENCE ANALYSIS SUMMARY ===\n');
+    fprintf('Analyzed %d runs with SBP reference in filename\n', numRuns);
+    fprintf('Creating %d page(s) for %d detectors\n\n', numPages, numDetectors);
+    
+    % Create a tab for each page
+    for pageNum = 1:numPages
+        startIdx = (pageNum - 1) * detectorsPerPage + 1;
+        endIdx = min(pageNum * detectorsPerPage, numDetectors);
+        numInPage = endIdx - startIdx + 1;
+        
+        % Create tab
+        if numPages == 1
+            tabName = 'SBP Reference Analysis';
+        else
+            tabName = sprintf('SBP Analysis (Rank %d-%d)', startIdx, endIdx);
+        end
+        sbpTab = uitab(tabGroup, 'Title', tabName);
+        
+        % Extract data for this page
+        pageDetectors = sortedDetectors(startIdx:endIdx);
+        pageMAE = sortedMAE(startIdx:endIdx);
+        pageStdAbsError = sortedStdAbsError(startIdx:endIdx);
+        
+        % Create axes
+        ax2 = axes('Parent', sbpTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
+        ax4 = axes('Parent', sbpTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
+        
+        % Plot 1: Absolute error with error bars (top)
+        axes(ax2);
+        errorbar(1:numInPage, pageMAE, pageStdAbsError, 'o-', 'LineStyle', 'none', ...
+            'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
+        grid on;
+        ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+        titleStr = sprintf('Mean Absolute Error from SBP Reference ± Std Dev (Rank %d-%d)', startIdx, endIdx);
+        title(titleStr, 'FontSize', 14);
+        shortLabels = shortenDetectorNames(pageDetectors);
+        set(gca, 'XTick', 1:numInPage, 'XTickLabel', shortLabels, ...
+            'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
+        
+        % Plot 2: Bar chart with error bars (bottom)
+        axes(ax4);
+        bar(pageMAE, 'FaceColor', [0.3 0.5 0.8]);
+        hold on;
+        errorbar(1:numInPage, pageMAE, pageStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
+        hold off;
+        
+        grid on;
+        xlabel('Detector (Ranked)', 'FontSize', 12);
+        ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
+        titleStr = sprintf('Detector Ranking by Accuracy (Rank %d-%d)', startIdx, endIdx);
+        title(titleStr, 'FontSize', 14);
+        shortLabels = shortenDetectorNames(pageDetectors);
+        set(gca, 'XTick', 1:numInPage, 'XTickLabel', shortLabels, ...
+            'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
+    end
+    
+    % Print top 20 to console
+    fprintf('Top 20 Detector Rankings by Mean Absolute Error:\n');
+    for i = 1:min(20, numDetectors)
         idx = sortIdx(i);
         fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
             i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
@@ -952,84 +1088,6 @@ function shortLabels = shortenDetectorNames(detectors)
     end
 end
 
-function createSBPReferenceTab(parentTab, allRuns, allDetectors)
-    % Filter to runs with SBP reference
-    runsWithSBP = allRuns(cellfun(@(r) r.hasSBPReference, allRuns));
-    numRuns = length(runsWithSBP);
-    numDetectors = length(allDetectors);
-    
-    if numRuns == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No runs with SBP reference in filename found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
-        return;
-    end
-    
-    % Extract errors
-    errors = nan(numDetectors, numRuns);
-    absErrors = nan(numDetectors, numRuns);
-    
-    for i = 1:numRuns
-        for j = 1:numDetectors
-            detName = allDetectors{j};
-            if isKey(runsWithSBP{i}.detections, detName)
-                detection = runsWithSBP{i}.detections(detName);
-                if detection.detected
-                    errors(j, i) = detection.sbpError;
-                    absErrors(j, i) = detection.sbpAbsError;
-                end
-            end
-        end
-    end
-    
-    % Calculate statistics
-    meanError = mean(errors, 2, 'omitnan');
-    stdError = std(errors, 0, 2, 'omitnan');
-    meanAbsError = mean(absErrors, 2, 'omitnan');
-    stdAbsError = std(absErrors, 0, 2, 'omitnan');
-    
-    % Create axes - only 2 plots now
-    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
-    ax4 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
-    
-    % Plot 1: Absolute error (top)
-    axes(ax2);
-    errorbar(1:numDetectors, meanAbsError, stdAbsError, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
-    grid on;
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Mean Absolute Error from SBP Reference ± Std Dev', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(allDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Plot 2: Ranking by absolute error (bottom)
-    axes(ax4);
-    [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
-    sortedDetectors = allDetectors(sortIdx);
-    sortedStdAbsError = stdAbsError(sortIdx);  % Sort the std deviations to match
-    
-    bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
-    hold on;
-    errorbar(1:numDetectors, sortedMAE, sortedStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
-    hold off;
-    
-    grid on;
-    xlabel('Detector (Ranked)', 'FontSize', 12);
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Detector Ranking by Accuracy (vs SBP Reference)', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(sortedDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Print summary
-    fprintf('\n=== SBP REFERENCE ANALYSIS SUMMARY ===\n');
-    fprintf('Analyzed %d runs with SBP reference in filename\n\n', numRuns);
-    fprintf('Detector Rankings by Mean Absolute Error:\n');
-    for i = 1:min(numDetectors, 10)
-        idx = sortIdx(i);
-        fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
-            i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
-    end
-    fprintf('\n');
-end
 function createBLAnalysisTab_v2(parentTab, allRuns, allDetectors)
     % Enhanced BL Analysis with Error Statistics
     
