@@ -74,7 +74,7 @@ void setup()
     pinMode(13, INPUT_PULLUP);
 
     // Print headers
-    Serial.println("Time,Pressure,PPGSignal,rawPPGSignal");
+    Serial.println("Time,Pressure,rawPPGSignal,PPGSignal");
 }
 
 void loop()
@@ -173,6 +173,10 @@ void loop()
         float DBP = (3.0f * map - result.systolic) / 2.0f;
         Serial.print("EstDia,0,");
         Serial.print(DBP, 0);
+        Serial.println(",0");
+
+        Serial.print("BPM,0,");
+        Serial.print(monitor.getBaselineBPM(), 0);
         Serial.println(",0");
 
         Serial.println("#SUMMARY_END");

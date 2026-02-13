@@ -424,19 +424,15 @@ void printRunResults(BPMonitor& monitor, const std::string& filename, int runNum
     std::cout << "MAP Diastolic: " << monitor.getMAPDetector()->getDiastolic() << " mmHg\n";
 }
 
-// Output CSV for one run
+// Output CSV for one run - UPDATED to match Arduino format
 void outputRunCSV(const CSVData& originalData, BPMonitor& monitor, 
                   const std::string& outputFile, const std::vector<CSVRow>& outputRows) {
     std::ofstream out(outputFile);
     
-    // Header
-    for (size_t i = 0; i < originalData.headers.size(); i++) {
-        out << originalData.headers[i];
-        if (i < originalData.headers.size() - 1) out << ",";
-    }
-    out << ",BaselineBeat,Osc_Amp,Osc_SBP,MAP,Osc_DBP,Est_DBP,EnsembleSystolic";
-    for (int i = 0; i < monitor.getDetectorCount(); i++) {
-        out << "," << monitor.getDetector(i)->getName();
+    // Header - Match Arduino format
+    out << "Time,Pressure,rawPPGSignal,PPGSignal";
+    if (originalData.hasAusPulseHeard) {
+        out << ",AUS_PULSE_HEARD";
     }
     out << "\n";
     
@@ -446,48 +442,89 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
     // Output rows with detector results
     for (const auto& row : outputRows) {
         
-        // Output original columns
-        out << row.time << "," << std::fixed << std::setprecision(2) << row.pressure 
-            << "," << row.ppgSignal;
+        // Output in Arduino format: Time, Pressure, rawPPGSignal, PPGSignal, [AUS_PULSE_HEARD]
+        out << row.time << "," 
+            << std::fixed << std::setprecision(2) << row.pressure << ",";
         
+        // rawPPGSignal (raw unfiltered)
         if (originalData.hasRawPPG) {
-            out << "," << row.rawPPGSignal;
+            out << row.rawPPGSignal;
+        } else {
+            out << "0";  // Default if not present
         }
+        
+        out << ",";
+        
+        // PPGSignal (filtered)
+        out << row.ppgSignal;
+        
+        // AUS_PULSE_HEARD (optional - button press)
         if (originalData.hasAusPulseHeard) {
             out << "," << row.ausPulseHeard;
         }
 
-        int isBaselineBeat = 0;
-        for (int b = 0; b < baselineBeatCount; b++) {
-            if (row.time == baselineBeats[b]) {
-                isBaselineBeat = 1;
-                break;
-            }
-        }
-
-        BPResult ensembleResult = monitor.getEnsembleResult();
-        float DBP = (3.0f * row.mapValue - ensembleResult.systolic) / 2.0f;
-
-        out << "," << isBaselineBeat
-            << "," << row.oscAmplitude
-            << "," << row.oscSystolic
-            << "," << row.mapValue
-            << "," << row.oscDiastolic
-            << "," << DBP
-            << "," << ensembleResult.systolic;
-
-        
-        // Output detector results - these are captured at the time of processing
-        for (int i = 0; i < monitor.getDetectorCount(); i++) {
-            DetectionRecord best = monitor.getDetector(i)->getBestDetection();
-            if (row.time >= best.timestamp) {
-                out << "," << std::fixed << std::setprecision(0) << best.pressure;
-            } else {
-                out << ",0";
-            }
-        }
         out << "\n";
     }
+    
+    // ===== SUMMARY SECTION - Match Arduino output =====
+    out << "#SUMMARY_START\n";
+    
+    // Output all detector results
+    int detectorCount = monitor.getDetectorCount();
+    for (int i = 0; i < detectorCount; i++) {
+        SystolicDetector* det = monitor.getDetector(i);
+        const char* name = det->getName();
+        
+        // Get top detections (up to 20)
+        DetectionRecord detections[20];
+        int count = 0;
+        det->getTopDetections(detections, 20, &count);
+        
+        // Output all detections with confidence > 0
+        for (int k = 0; k < count; k++) {
+            if (detections[k].confidence <= 0)
+                continue;
+            
+            out << name << ","
+                << detections[k].timestamp << ","
+                << std::fixed << std::setprecision(0) << detections[k].pressure << ","
+                << std::setprecision(3) << detections[k].confidence << "\n";
+        }
+    }
+    
+    // Ensemble Result
+    BPResult result = monitor.getEnsembleResult();
+    out << "Ensemble,0,"
+        << std::fixed << std::setprecision(0) << result.systolic
+        << ",0\n";
+    
+    // Oscillometric Results
+    MAPDetector* osc = monitor.getMAPDetector();
+    
+    out << "OscSys,0,"
+        << std::fixed << std::setprecision(0) << osc->getSystolic()
+        << ",0\n";
+    
+    out << "OscMAP,0,"
+        << std::fixed << std::setprecision(0) << osc->getMAP()
+        << ",0\n";
+    
+    out << "OscDia,0,"
+        << std::fixed << std::setprecision(0) << osc->getDiastolic()
+        << ",0\n";
+    
+    // Estimated Diastolic (from ensemble systolic + MAP)
+    float map = monitor.getMAP();
+    float DBP = (3.0f * map - result.systolic) / 2.0f;
+    out << "EstDia,0,"
+        << std::fixed << std::setprecision(0) << DBP
+        << ",0\n";
+
+    out << "BPM,0,"
+        << std::fixed << std::setprecision(0) << monitor.getBaselineBPM()
+        << ",0\n";
+    
+    out << "#SUMMARY_END\n";
 }
 
 bool extractSBPFromFilename(const std::string& filename, float& sbpOut) {
@@ -812,17 +849,18 @@ int main(int argc, char* argv[]) {
     std::vector<SystolicDetector*> allocatedDetectors;
 
     // Add detectors
-    // int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80};
-    // float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
-    // int holds[] = {10};
-    int windows[] = {5, 20, 30, 40, 50, 100, 110, 120, 130, 140, 150, 160, 170, 180};
-    float thresholds[] = {1.2, 1.5, 1.7, 2.0, 2.2, 2.4};
-    int holds[] = {15, 20, 24, 28, 32};
+    // int windows[] = {50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160};
+    // float thresholds[] = {1.5, 1.7, 2.0, 2.2, 2.4, 2.7, 3.0};
+    // int holds[] = {10, 15, 20, 25, 30};
+
+    int windows[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200};
+    float thresholds[] = {1.2, 1.5, 1.7, 2.0, 2.2, 2.4, 2.7, 3.0};
+    int minDev[] = {2, 4, 6, 8, 10, 15, 20, 25, 30};
     
     for (int w : windows) {
         for (float t : thresholds) {
-            for (int h : holds) {
-                auto* det = new BaselineDetector(w, t, h);
+            for (int d : minDev) {
+                auto* det = new BaselineDetector(w, t, d);
                 allocatedDetectors.push_back(det);
                 monitor.addDetector(det);
             }

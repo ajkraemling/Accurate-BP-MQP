@@ -340,10 +340,13 @@ BPResult BPMonitor::getEnsembleResult() const
     int readingCount = 0;
 
     // --- 1. Collect all normalized hypotheses from detectors ---
+    int detectorStartIndices[MAX_DETECTORS];
     for (int i = 0; i < detectorCount; i++)
     {
         if (readingCount >= MAX_DETECTORS * MAX_READINGS_PER_DETECTOR) break;
         
+        detectorStartIndices[i] = readingCount;
+
         DetectionRecord top[MAX_READINGS_PER_DETECTOR];
         int actualCount = detectors[i]->softmaxNormalize(top, MAX_READINGS_PER_DETECTOR, 0.1f); // T=0.1 for sharpening
 
@@ -361,6 +364,24 @@ BPResult BPMonitor::getEnsembleResult() const
 
     if (readingCount == 0)
         return result;  // no valid readings
+
+    for (int i = 0; i < detectorCount; i++) {
+        int startIdx = detectorStartIndices[i];
+        int endIdx = (i + 1 < detectorCount) ? detectorStartIndices[i + 1] : readingCount;
+        
+        // Sum this detector's total weight
+        float detectorWeightSum = 0;
+        for (int j = startIdx; j < endIdx; j++) {
+            detectorWeightSum += readings[j].weight;
+        }
+        
+        // Normalize so detector contributes exactly 1.0
+        if (detectorWeightSum > 0) {
+            for (int j = startIdx; j < endIdx; j++) {
+                readings[j].weight /= detectorWeightSum;
+            }
+        }
+    }
 
     // --- 2. Compute weighted mean (systolic) ---
     float weightedSum = 0;

@@ -2,6 +2,7 @@
 % This script compares multiple CSV files with different detection algorithms
 % for systolic blood pressure measurement
 % Updated to parse new CSV format with SUMMARY section
+% Added per-person analysis for specific names
 clear; clc; close all;
 
 fprintf('=== STARTING BLOOD PRESSURE ANALYSIS ===\n');
@@ -236,17 +237,30 @@ for fileIdx = 1:length(files)
             fprintf('  *** FOUND SBP REFERENCE: %d mmHg from filename ***\n', runInfo.sbpReference);
         end
         
+        % Extract person name from filename (search anywhere in filename)
+        runInfo.personName = '';
+        targetNames = {'Harleen', 'Brendan', 'Taegon', 'Alex', 'Alexander', 'Kali', 'Nina'};
+        for nameIdx = 1:length(targetNames)
+            if contains(lower(fname), lower(targetNames{nameIdx}))
+                runInfo.personName = targetNames{nameIdx};
+                fprintf('  *** FOUND PERSON NAME: %s ***\n', runInfo.personName);
+                break;
+            end
+        end
+        
         % Process summary data - find best detection for each detector
         detectorMap = containers.Map();
-        postProcessors = {'Ensemble', 'OscSys', 'OscMAP', 'OscDia', 'EstDia'};
+        postProcessors = {'Ensemble', 'OscSys', 'OscMAP', 'OscDia', 'EstDia', 'BPM'};
         
         for i = 1:length(summaryData)
             entry = summaryData{i};
             detName = entry.Detector;
             
-            % Skip if timestamp/pressure is invalid
+            % Skip if timestamp/pressure is invalid (but allow BPM)
             if entry.Timestamp == 0 || entry.Pressure < 0
-                continue;
+                if ~strcmp(detName, 'BPM')
+                    continue;
+                end
             end
             
             % For post-processors, just store the value
@@ -259,6 +273,16 @@ for fileIdx = 1:length(files)
             if ~isKey(detectorMap, detName) || entry.Confidence > detectorMap(detName).Confidence
                 detectorMap(detName) = entry;
             end
+        end
+        
+        % Extract BPM (heart rate) if available
+        runInfo.hasBPM = false;
+        runInfo.bpm = NaN;
+        if isKey(detectorMap, 'BPM')
+            bpmEntry = detectorMap('BPM');
+            runInfo.bpm = bpmEntry.Pressure;  % BPM stored in pressure field
+            runInfo.hasBPM = true;
+            fprintf('  *** FOUND BPM: %.1f ***\n', runInfo.bpm);
         end
         
         % Extract detector names
@@ -348,6 +372,10 @@ fprintf('Found %d run(s) with ground truth data.\n\n', runsWithGroundTruth);
 runsWithSBPRef = sum(cellfun(@(r) r.hasSBPReference, allRuns));
 fprintf('Found %d run(s) with SBP reference in filename.\n\n', runsWithSBPRef);
 
+% Count runs with BPM
+runsWithBPM = sum(cellfun(@(r) isfield(r, 'hasBPM') && r.hasBPM, allRuns));
+fprintf('Found %d run(s) with BPM (heart rate) data.\n\n', runsWithBPM);
+
 %% Create Main Tabbed Figure
 screenSize = get(0, 'ScreenSize');
 figWidth = 1600;
@@ -366,6 +394,62 @@ tabGroup = uitabgroup(mainFig);
 compTab = uitab(tabGroup, 'Title', 'Detector Comparison');
 createComparisonTab(compTab, allRuns, allDetectors);
 
+blTab = uitab(tabGroup, 'Title', 'Baseline Analysis');
+createBLAnalysisTab(blTab, allRuns, allDetectors);
+
+if runsWithGroundTruth > 0
+    blTab_v2 = uitab(tabGroup, 'Title', 'Baseline Analysis Error from Ground Truth');
+    createBLAnalysisTab_v2(blTab_v2, allRuns, allDetectors);
+end
+
+drvTab = uitab(tabGroup, 'Title', 'Derivative Analysis');
+createDRVAnalysisTab(drvTab, allRuns, allDetectors);
+
+% Create per-person baseline analysis tabs
+personNames = {'Harleen', 'Brendan', 'Taegon', 'Alex', 'Alexander', 'Kali', 'Nina'};
+for i = 1:length(personNames)
+    personName = personNames{i};
+    
+    % For Alex, also include Alexander in the filter
+    if strcmpi(personName, 'Alex')
+        personRuns = filterRunsByName(allRuns, {'Alex', 'Alexander'});
+        displayName = 'Alex/Alexander';
+    elseif strcmpi(personName, 'Alexander')
+        % Skip Alexander since it's already handled with Alex
+        continue;
+    else
+        personRuns = filterRunsByName(allRuns, {personName});
+        displayName = personName;
+    end
+    
+    if ~isempty(personRuns)
+        % Create baseline analysis tab for this person
+        tabName = sprintf('%s - BL Analysis', displayName);
+        personTab = uitab(tabGroup, 'Title', tabName);
+        createBLAnalysisTab(personTab, personRuns, allDetectors);
+        
+        % Create error analysis tab if they have ground truth data
+        personRunsGT = personRuns(cellfun(@(r) r.hasGroundTruth, personRuns));
+        if ~isempty(personRunsGT)
+            tabName = sprintf('%s - BL Error', displayName);
+            personTabErr = uitab(tabGroup, 'Title', tabName);
+            createBLAnalysisTab_v2(personTabErr, personRuns, allDetectors);
+        end
+        
+        fprintf('Created analysis tabs for %s (%d runs, %d with GT)\n', ...
+            displayName, length(personRuns), length(personRunsGT));
+    else
+        fprintf('No runs found for %s\n', personName);
+    end
+end
+
+% Create heart rate analysis tab if we have BPM and ground truth data
+runsWithBPM = allRuns(cellfun(@(r) isfield(r, 'hasBPM') && r.hasBPM, allRuns));
+if ~isempty(runsWithBPM) && runsWithGroundTruth > 0
+    hrTab = uitab(tabGroup, 'Title', 'Heart Rate Analysis');
+    createHeartRateAnalysisTab(hrTab, allRuns, allDetectors);
+end
+
 % Create ground truth error analysis tab if applicable
 if runsWithGroundTruth > 0
     gtTab = uitab(tabGroup, 'Title', 'Ground Truth Analysis');
@@ -377,17 +461,6 @@ if runsWithSBPRef > 0
     sbpTab = uitab(tabGroup, 'Title', 'SBP Reference Analysis');
     createSBPReferenceTab(sbpTab, allRuns, allDetectors);
 end
-
-blTab = uitab(tabGroup, 'Title', 'Baseline Analysis');
-createBLAnalysisTab(blTab, allRuns, allDetectors);
-
-if runsWithGroundTruth > 0
-    blTab_v2 = uitab(tabGroup, 'Title', 'Baseline Analysis Error from Ground Truth');
-    createBLAnalysisTab_v2(blTab_v2, allRuns, allDetectors);
-end
-
-drvTab = uitab(tabGroup, 'Title', 'Derivative Analysis');
-createDRVAnalysisTab(drvTab, allRuns, allDetectors);
 
 % Create tabs for each run
 for i = 1:length(allRuns)
@@ -404,6 +477,25 @@ end
 fprintf('\nAnalysis complete! Use the tabs to navigate between views.\n');
 
 %% Helper Functions
+
+function filteredRuns = filterRunsByName(allRuns, namePatterns)
+    % Filter runs by person name in filename
+    % namePatterns: cell array of name strings to match (case-insensitive)
+    filteredRuns = {};
+    
+    for i = 1:length(allRuns)
+        if isfield(allRuns{i}, 'personName') && ~isempty(allRuns{i}.personName)
+            % Check if person name matches any of the patterns
+            for j = 1:length(namePatterns)
+                if strcmpi(allRuns{i}.personName, namePatterns{j})
+                    filteredRuns{end+1} = allRuns{i};
+                    break;
+                end
+            end
+        end
+    end
+end
+
 function createFileTab(parentTab, runInfo)
     ax = axes('Parent', parentTab, 'Position', [0.08, 0.15, 0.78, 0.75]);
     
@@ -1107,4 +1199,259 @@ function createBLAnalysisTab_v2(parentTab, allRuns, allDetectors)
             uniqueD(i), meanErrByD(i), stdErrByD(i));
     end
     fprintf('\n');
+end
+
+function createHeartRateAnalysisTab(parentTab, allRuns, allDetectors)
+    % Heart Rate vs Parameter Analysis with Error Heatmap
+    
+    blDetectors = allDetectors(startsWith(allDetectors, 'BL_'));
+    
+    if isempty(blDetectors)
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No BL detectors found in the data.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    % Filter to runs with both ground truth and BPM
+    runsWithBoth = allRuns(cellfun(@(r) r.hasGroundTruth && isfield(r, 'hasBPM') && r.hasBPM, allRuns));
+    
+    if isempty(runsWithBoth)
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No runs with both ground truth and BPM data found.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    numBL = length(blDetectors);
+    params = zeros(numBL, 3);
+    validDetectors = true(numBL, 1);
+    
+    % Parse detector parameters
+    for i = 1:numBL
+        tokens = regexp(blDetectors{i}, 'BL_W(\d+)_T(\d+)\.(\d+)_D(\d+)', 'tokens');
+        if ~isempty(tokens) && ~isempty(tokens{1})
+            W = str2double(tokens{1}{1});
+            T_integer = str2double(tokens{1}{2});
+            T_decimal = str2double(tokens{1}{3});
+            D = str2double(tokens{1}{4});
+            T = T_integer + T_decimal / 10;
+            params(i, :) = [W, T, D];
+        else
+            validDetectors(i) = false;
+        end
+    end
+    
+    blDetectors = blDetectors(validDetectors);
+    params = params(validDetectors, :);
+    numBL = length(blDetectors);
+    
+    if numBL == 0
+        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
+            'String', 'No BL detectors with valid naming format found.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+    
+    % Extract errors and BPM for each detector and run
+    numRuns = length(runsWithBoth);
+    errors = nan(numBL, numRuns);
+    bpms = zeros(1, numRuns);
+    
+    for i = 1:numRuns
+        bpms(i) = runsWithBoth{i}.bpm;
+        for j = 1:numBL
+            detName = blDetectors{j};
+            if isKey(runsWithBoth{i}.detections, detName)
+                detection = runsWithBoth{i}.detections(detName);
+                if detection.detected
+                    errors(j, i) = detection.error;
+                end
+            end
+        end
+    end
+    
+    % Define heart rate bins
+    minBPM = floor(min(bpms) / 5) * 5;
+    maxBPM = ceil(max(bpms) / 5) * 5;
+    bpmBins = minBPM:5:maxBPM;
+    bpmLabels = cell(1, length(bpmBins)-1);
+    for i = 1:length(bpmBins)-1
+        bpmLabels{i} = sprintf('%d-%d', bpmBins(i), bpmBins(i+1)-1);
+    end
+    
+    % Assign each run to a BPM bin
+    bpmBinIdx = discretize(bpms, bpmBins);
+    
+    % Get unique parameter values
+    uniqueW = sort(unique(params(:, 1)));
+    uniqueT = sort(unique(params(:, 2)));
+    uniqueD = sort(unique(params(:, 3)));
+    
+    % Create three heatmaps (W, T, D)
+    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.68, 0.86, 0.26]);
+    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.38, 0.86, 0.26]);
+    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.08, 0.86, 0.26]);
+    
+    % --- Window Size Heatmap ---
+    axes(ax1);
+    heatmapW = nan(length(uniqueW), length(bpmLabels));
+    
+    for i = 1:length(uniqueW)
+        W = uniqueW(i);
+        detIdx = find(params(:, 1) == W);
+        
+        for j = 1:length(bpmLabels)
+            runIdx = find(bpmBinIdx == j);
+            if ~isempty(runIdx) && ~isempty(detIdx)
+                errorSubset = errors(detIdx, runIdx);
+                heatmapW(i, j) = mean(abs(errorSubset(:)), 'omitnan');
+            end
+        end
+    end
+    
+    imagesc(heatmapW);
+    colormap(ax1, createErrorColormap());
+    caxis([0 20]);
+    colorbar;
+    
+    set(gca, 'XTick', 1:length(bpmLabels), 'XTickLabel', bpmLabels, 'XTickLabelRotation', 45);
+    set(gca, 'YTick', 1:length(uniqueW), 'YTickLabel', uniqueW);
+    xlabel('Heart Rate (BPM)', 'FontSize', 11);
+    ylabel('Window Size (W)', 'FontSize', 11);
+    title('Mean Absolute Error: Window Size vs Heart Rate', 'FontSize', 12);
+    
+    % Add text labels
+    for i = 1:length(uniqueW)
+        for j = 1:length(bpmLabels)
+            if ~isnan(heatmapW(i, j))
+                text(j, i, sprintf('%.1f', heatmapW(i, j)), ...
+                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
+                    'Color', getTextColor(heatmapW(i, j)));
+            end
+        end
+    end
+    
+    % --- Threshold Heatmap ---
+    axes(ax2);
+    heatmapT = nan(length(uniqueT), length(bpmLabels));
+    
+    for i = 1:length(uniqueT)
+        T = uniqueT(i);
+        detIdx = find(params(:, 2) == T);
+        
+        for j = 1:length(bpmLabels)
+            runIdx = find(bpmBinIdx == j);
+            if ~isempty(runIdx) && ~isempty(detIdx)
+                errorSubset = errors(detIdx, runIdx);
+                heatmapT(i, j) = mean(abs(errorSubset(:)), 'omitnan');
+            end
+        end
+    end
+    
+    imagesc(heatmapT);
+    colormap(ax2, createErrorColormap());
+    caxis([0 20]);
+    colorbar;
+    
+    set(gca, 'XTick', 1:length(bpmLabels), 'XTickLabel', bpmLabels, 'XTickLabelRotation', 45);
+    set(gca, 'YTick', 1:length(uniqueT), 'YTickLabel', uniqueT);
+    xlabel('Heart Rate (BPM)', 'FontSize', 11);
+    ylabel('Threshold (T)', 'FontSize', 11);
+    title('Mean Absolute Error: Threshold vs Heart Rate', 'FontSize', 12);
+    
+    % Add text labels
+    for i = 1:length(uniqueT)
+        for j = 1:length(bpmLabels)
+            if ~isnan(heatmapT(i, j))
+                text(j, i, sprintf('%.1f', heatmapT(i, j)), ...
+                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
+                    'Color', getTextColor(heatmapT(i, j)));
+            end
+        end
+    end
+    
+    % --- Minimum Deviation Heatmap ---
+    axes(ax3);
+    heatmapD = nan(length(uniqueD), length(bpmLabels));
+    
+    for i = 1:length(uniqueD)
+        D = uniqueD(i);
+        detIdx = find(params(:, 3) == D);
+        
+        for j = 1:length(bpmLabels)
+            runIdx = find(bpmBinIdx == j);
+            if ~isempty(runIdx) && ~isempty(detIdx)
+                errorSubset = errors(detIdx, runIdx);
+                heatmapD(i, j) = mean(abs(errorSubset(:)), 'omitnan');
+            end
+        end
+    end
+    
+    imagesc(heatmapD);
+    colormap(ax3, createErrorColormap());
+    caxis([0 20]);
+    colorbar;
+    
+    set(gca, 'XTick', 1:length(bpmLabels), 'XTickLabel', bpmLabels, 'XTickLabelRotation', 45);
+    set(gca, 'YTick', 1:length(uniqueD), 'YTickLabel', uniqueD);
+    xlabel('Heart Rate (BPM)', 'FontSize', 11);
+    ylabel('Minimum Deviation (D)', 'FontSize', 11);
+    title('Mean Absolute Error: Min Deviation vs Heart Rate', 'FontSize', 12);
+    
+    % Add text labels
+    for i = 1:length(uniqueD)
+        for j = 1:length(bpmLabels)
+            if ~isnan(heatmapD(i, j))
+                text(j, i, sprintf('%.1f', heatmapD(i, j)), ...
+                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
+                    'Color', getTextColor(heatmapD(i, j)));
+            end
+        end
+    end
+    
+    fprintf('\n=== HEART RATE ANALYSIS ===\n');
+    fprintf('Analyzed %d runs with BPM and ground truth\n', numRuns);
+    fprintf('BPM range: %.0f - %.0f\n', min(bpms), max(bpms));
+    fprintf('Color coding: Green (<5 mmHg), Yellow (5-10 mmHg), Light Red (10-15 mmHg), Dark Red (>15 mmHg)\n\n');
+end
+
+function cmap = createErrorColormap()
+    % Create custom colormap: green -> yellow -> light red -> dark red
+    % <5: green, 5-10: yellow, 10-15: light red, >15: dark red
+    
+    n = 256;
+    cmap = zeros(n, 3);
+    
+    for i = 1:n
+        error = (i-1) * 20 / (n-1);  % Map to 0-20 mmHg range
+        
+        if error < 5
+            % Green
+            cmap(i, :) = [0, 0.8, 0];
+        elseif error < 10
+            % Transition green to yellow
+            t = (error - 5) / 5;
+            cmap(i, :) = [t, 0.8, 0];
+        elseif error < 15
+            % Transition yellow to light red
+            t = (error - 10) / 5;
+            cmap(i, :) = [1, 0.8*(1-t) + 0.5*t, 0];
+        else
+            % Transition light red to dark red
+            t = min((error - 15) / 5, 1);
+            cmap(i, :) = [1, 0.5*(1-t), 0];
+        end
+    end
+end
+
+function color = getTextColor(error)
+    % Return black or white text depending on background brightness
+    if isnan(error)
+        color = 'k';
+    elseif error < 10
+        color = 'k';  % Black text on green/yellow
+    else
+        color = 'w';  % White text on red
+    end
 end
