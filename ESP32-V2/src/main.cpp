@@ -50,10 +50,8 @@ public:
     }
 
     void initializeDetectors() {
-        // Strategy: Use very sensitive detectors to catch the FIRST appearance of pulses
-        // These will fire early when pulses first appear (near systolic)
         
-        // Short windows for quick response
+        // Short windows 
         int windows[] = {40, 60, 80, 100};
         
         // Very low thresholds to catch weak initial pulses
@@ -232,7 +230,7 @@ void loop() {
     if (now - lastSample >= SAMPLE_RATE_MS) {
         lastSample = now;
 
-        // ===== CALIBRATION PHASE =====
+        //CALIBRATION PHASE 
         if (calState != CAL_COMPLETE) {
             if (calibratePulseSensor()) {
                 float avgInterval = 0;
@@ -258,7 +256,7 @@ void loop() {
             return;
         }
 
-        // ===== MEASUREMENT PHASE =====
+        //MEASUREMENT PHASE 
         float pressure = readPressureSensor();
         int rawPPG = readPPGSensor();
         int filteredPPG = ppgSensor.read();
@@ -399,7 +397,7 @@ void displayResults() {
         DetectionRecord best = det->getBestDetection();
         
         if (best.pressure > 0) {
-            // Group by threshold (roughly)
+            // Group by threshold 
             int group = (i * 10) / mon->getDetectorCount();
             if (group >= 10) group = 9;
             
@@ -440,7 +438,7 @@ void displayResults() {
         Serial.print("MAP: "); Serial.print(map, 1); Serial.println(" mmHg");
         Serial.print("Confidence: "); Serial.println(conf, 3);
         
-        // Sanity check
+    
         if (dia < 40 || dia > 100) {
             Serial.println("\n[WARNING] Diastolic out of normal range!");
             Serial.println("This suggests MAP detection may have failed.");

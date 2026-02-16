@@ -95,7 +95,7 @@ void SystolicDetector::updateConfidenceScores(unsigned long currentTimestamp)
                 continue;
             }
 
-            // Too late → rhythm broken
+            
             if (interval > maxInterval)
             {
                 break;
