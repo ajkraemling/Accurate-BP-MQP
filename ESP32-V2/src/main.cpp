@@ -40,7 +40,6 @@ public:
           finalMAP(0),
           finalConfidence(0)
     {
-        // No filter needed - ppgSensor.read() already provides filtered data
         initializeDetectors();
     }
 
@@ -51,16 +50,18 @@ public:
     }
 
     void initializeDetectors() {
-        // Use LARGER windows so baseline doesn't track individual pulses
-        // Windows of 50-100 samples = 1-2 seconds of history
-        int windows[] = {50, 75, 100};
-        int minDeviations[] = {5, 8, 10, 15, 20, 25, 30};  // Range of sensitivities
+        // Strategy: Use very sensitive detectors to catch the FIRST appearance of pulses
+        // These will fire early when pulses first appear (near systolic)
         
-        // Create detectors with different sensitivity levels
+        // Short windows for quick response
+        int windows[] = {40, 60, 80, 100};
+        
+        // Very low thresholds to catch weak initial pulses
+        int minDeviations[] = {2, 3, 4, 5, 6, 8, 10};
+        
         for (int w : windows) {
             for (int minDev : minDeviations) {
                 if (detectorCount < MAX_ALLOCATED_DETECTORS) {
-                    // threshold = 0.0 means use minDeviation only
                     auto* det = new BaselineDetector(w, 0.0, minDev);
                     detectors[detectorCount++] = det;
                     monitor.addDetector(det);
@@ -74,11 +75,10 @@ public:
     }
 
     void processMeasurement(float pressure, int rawPPG, int filteredPPG, unsigned long timestamp) {
-        // Use RAW signal for detectors - they need the DC offset to calculate baseline
-        // The filtered signal only has AC component which is too small
+        // Use FILTERED signal for detectors - it has the AC pulse component
         BPMeasurement m;
         m.pressure = pressure;
-        m.ppgSignal = rawPPG;  // Use raw signal with DC offset
+        m.ppgSignal = filteredPPG;  // Use filtered signal with AC component
         m.rawPPGSignal = rawPPG;
         m.timestamp = timestamp;
 
@@ -155,6 +155,33 @@ float calPeakToPeak = 0;
 int calLastRaw = 0;
 bool calInPulse = false;
 unsigned long calLastPulseTime = 0;
+unsigned long calFirstPulseTime = 0;
+
+// Measurement tracking
+struct MeasurementStats {
+    int minPPG;
+    int maxPPG;
+    int minFiltered;
+    int maxFiltered;
+    unsigned long startTime;
+    bool active;
+    
+    void reset(int raw, int filtered) {
+        minPPG = raw;
+        maxPPG = raw;
+        minFiltered = filtered;
+        maxFiltered = filtered;
+        startTime = millis();
+        active = true;
+    }
+    
+    void update(int raw, int filtered) {
+        if (raw < minPPG) minPPG = raw;
+        if (raw > maxPPG) maxPPG = raw;
+        if (filtered < minFiltered) minFiltered = filtered;
+        if (filtered > maxFiltered) maxFiltered = filtered;
+    }
+} measureStats = {9999, 0, 9999, 0, 0, false};
 
 // =============================================================================
 // FUNCTION PROTOTYPES
@@ -181,8 +208,6 @@ void setup() {
     pressureSensor.begin();
     pressureSensor.calibrate();
 
-    bpMonitor.getMonitor()->reset();
-
     Serial.println("\n========================================");
     Serial.println("ESP32 Blood Pressure Monitor");
     Serial.println("========================================");
@@ -201,6 +226,7 @@ void loop() {
     static unsigned long lastSample = 0;
     static unsigned long lastDebugPrint = 0;
     static unsigned long lastCalPrint = 0;
+    static unsigned long lastDiagnostic = 0;
     unsigned long now = millis();
 
     if (now - lastSample >= SAMPLE_RATE_MS) {
@@ -209,10 +235,17 @@ void loop() {
         // ===== CALIBRATION PHASE =====
         if (calState != CAL_COMPLETE) {
             if (calibratePulseSensor()) {
+                float avgInterval = 0;
+                if (calPulseCount > 1 && calLastPulseTime > calFirstPulseTime) {
+                    avgInterval = (float)(calLastPulseTime - calFirstPulseTime) / (calPulseCount - 1);
+                }
+                
                 Serial.println("\n✓ Calibration complete!");
-                Serial.print("Detected pulse rate: ");
-                Serial.print(60000.0 / ((float)(calLastPulseTime - 0) / calPulseCount), 0);
-                Serial.println(" BPM");
+                if (avgInterval > 0) {
+                    Serial.print("Detected pulse rate: ");
+                    Serial.print(60000.0 / avgInterval, 0);
+                    Serial.println(" BPM");
+                }
                 Serial.print("Signal amplitude: ");
                 Serial.print(calPeakToPeak, 0);
                 Serial.println(" units");
@@ -228,7 +261,7 @@ void loop() {
         // ===== MEASUREMENT PHASE =====
         float pressure = readPressureSensor();
         int rawPPG = readPPGSensor();
-        int filteredPPG = ppgSensor.read();  // Get filtered PPG from sensor
+        int filteredPPG = ppgSensor.read();
 
         BPState prevState = lastState;
         
@@ -240,11 +273,16 @@ void loop() {
         if (state != prevState) {
             printStateChange(state);
             
-            // Reset PPG range tracking when starting measurement
+            // Reset measurement tracking when starting
             if (state == MEASURING) {
-                // Reset the static variables in the debug print section
                 Serial.println("Resetting signal tracking for new measurement...");
+                measureStats.reset(rawPPG, filteredPPG);
             }
+        }
+
+        // Update stats during measurement
+        if (state == MEASURING && measureStats.active) {
+            measureStats.update(rawPPG, filteredPPG);
         }
 
         // Print periodic status during measurement
@@ -258,38 +296,37 @@ void loop() {
                 totalDetections += mon->getDetector(i)->getDetectionCount();
             }
             
-            // Calculate signal statistics - MUST reset when entering MEASURING state
-            static int minPPG = 9999;
-            static int maxPPG = 0;
-            static BPState lastTrackState = IDLE;
-            
-            // Reset when entering MEASURING state
-            if (state == MEASURING && lastTrackState != MEASURING) {
-                minPPG = rawPPG;
-                maxPPG = rawPPG;
-            }
-            lastTrackState = state;
-            
-            if (rawPPG < minPPG) minPPG = rawPPG;
-            if (rawPPG > maxPPG) maxPPG = rawPPG;
-            int peakToPeak = maxPPG - minPPG;
+            int rawRange = measureStats.maxPPG - measureStats.minPPG;
+            int filteredRange = measureStats.maxFiltered - measureStats.minFiltered;
             
             Serial.print("Measuring... P:");
             Serial.print(pressure, 0);
-            Serial.print(" mmHg, PPG:");
+            Serial.print(" mmHg | Raw:");
             Serial.print(rawPPG);
-            Serial.print(" (");
-            Serial.print(minPPG);
-            Serial.print("-");
-            Serial.print(maxPPG);
-            Serial.print(", Δ");
-            Serial.print(peakToPeak);
-            Serial.print("), Det:");
+            Serial.print(" (Δ");
+            Serial.print(rawRange);
+            Serial.print(") | Filt:");
+            Serial.print(filteredPPG);
+            Serial.print(" (Δ");
+            Serial.print(filteredRange);
+            Serial.print(") | Det:");
             Serial.println(totalDetections);
+        }
+
+        // Diagnostic output every 5 seconds
+        if (state == MEASURING && (now - lastDiagnostic > 5000)) {
+            lastDiagnostic = now;
+            Serial.print("[DIAGNOSTIC] Raw:");
+            Serial.print(rawPPG);
+            Serial.print(" | Filtered:");
+            Serial.print(filteredPPG);
+            Serial.print(" | AC amplitude:");
+            Serial.println(measureStats.maxFiltered - measureStats.minFiltered);
         }
 
         // Handle completion
         if (state == COMPLETE && prevState != COMPLETE) {
+            measureStats.active = false;
             displayResults();
             
             // Wait a moment then reset everything including calibration
@@ -348,15 +385,83 @@ void printStateChange(BPState newState) {
 void displayResults() {
     float sys, dia, map, conf;
 
+    // Print detector details BEFORE final results
+    Serial.println("\n=== DETECTOR ANALYSIS ===");
+    BPMonitor* mon = bpMonitor.getMonitor();
+    
+    // Show best detection from each detector type
+    int detectorTypes[10] = {0}; // Track detections by minDeviation
+    float pressures[10] = {0};
+    int counts[10] = {0};
+    
+    for (int i = 0; i < mon->getDetectorCount(); i++) {
+        SystolicDetector* det = mon->getDetector(i);
+        DetectionRecord best = det->getBestDetection();
+        
+        if (best.pressure > 0) {
+            // Group by threshold (roughly)
+            int group = (i * 10) / mon->getDetectorCount();
+            if (group >= 10) group = 9;
+            
+            pressures[group] += best.pressure;
+            counts[group]++;
+        }
+    }
+    
+    Serial.println("Detector groups (by sensitivity):");
+    for (int i = 0; i < 10; i++) {
+        if (counts[i] > 0) {
+            Serial.print("  Group ");
+            Serial.print(i);
+            Serial.print(": ");
+            Serial.print(pressures[i] / counts[i], 1);
+            Serial.print(" mmHg (n=");
+            Serial.print(counts[i]);
+            Serial.println(")");
+        }
+    }
+    
+    // Show MAP detector results
+    Serial.print("\nMAP Analysis:");
+    Serial.print("\n  Detected MAP: ");
+    Serial.print(mon->getMAPDetector()->getMAP(), 1);
+    Serial.print(" mmHg");
+    Serial.print("\n  Detected Systolic (from MAP): ");
+    Serial.print(mon->getMAPDetector()->getSystolic(), 1);
+    Serial.print(" mmHg");
+    Serial.print("\n  Detected Diastolic (from MAP): ");
+    Serial.print(mon->getMAPDetector()->getDiastolic(), 1);
+    Serial.println(" mmHg");
+
     if (bpMonitor.getResults(sys, dia, map, conf)) {
         Serial.println("\n=== BLOOD PRESSURE RESULTS ===");
         Serial.print("Systolic: "); Serial.print(sys, 1); Serial.println(" mmHg");
         Serial.print("Diastolic: "); Serial.print(dia, 1); Serial.println(" mmHg");
         Serial.print("MAP: "); Serial.print(map, 1); Serial.println(" mmHg");
         Serial.print("Confidence: "); Serial.println(conf, 3);
+        
+        // Sanity check
+        if (dia < 40 || dia > 100) {
+            Serial.println("\n[WARNING] Diastolic out of normal range!");
+            Serial.println("This suggests MAP detection may have failed.");
+        }
+        if (sys < 80 || sys > 180) {
+            Serial.println("\n[WARNING] Systolic out of normal range!");
+        }
+        if ((sys - dia) < 20 || (sys - dia) > 80) {
+            Serial.println("\n[WARNING] Pulse pressure unusual!");
+            Serial.print("Expected 30-60 mmHg, got: ");
+            Serial.println(sys - dia, 1);
+        }
+        
         Serial.println("==============================");
     } else {
         Serial.println("\n[ERROR] Measurement failed - invalid results");
+        Serial.println("Possible issues:");
+        Serial.println("  - Weak or no pulse signal detected");
+        Serial.println("  - Cuff pressure too high (crushed vessels)");
+        Serial.println("  - Sensor not making good contact");
+        Serial.println("  - Motion during measurement");
     }
 }
 
@@ -366,25 +471,24 @@ void displayResults() {
 
 bool calibratePulseSensor() {
     int rawPPG = readPPGSensor();
+    int filteredPPG = ppgSensor.read();  // Use FILTERED signal for calibration
     
     // Check for sensor saturation
-    if (rawPPG >= 4090) {
-        static int saturationWarnings = 0;
-        if (saturationWarnings == 0) {
-            Serial.println("\n[ERROR] PPG sensor saturated at maximum value!");
-            Serial.println("FIXES:");
-            Serial.println("  1. Reduce LED brightness if adjustable");
-            Serial.println("  2. Adjust finger pressure on sensor");
-            Serial.println("  3. Block ambient light");
-            Serial.println("  4. Check sensor wiring\n");
-        }
-        saturationWarnings++;
-        if (saturationWarnings > 10) saturationWarnings = 0;  // Reset counter
+    static bool saturationWarned = false;
+    if (rawPPG >= 4090 && !saturationWarned) {
+        Serial.println("\n[WARNING] PPG sensor saturated!");
+        Serial.println("Adjust: LED brightness, finger pressure, or ambient light\n");
+        saturationWarned = true;
+    }
+    
+    // Reset warning flag when entering new calibration
+    if (calState == CAL_DETECTING_BASELINE && calSampleCount == 0) {
+        saturationWarned = false;
     }
     
     if (calState == CAL_DETECTING_BASELINE) {
         // Build baseline over first 100 samples (about 5 seconds)
-        calBaseline = ((calBaseline * calSampleCount) + rawPPG) / (calSampleCount + 1);
+        calBaseline = ((calBaseline * calSampleCount) + filteredPPG) / (calSampleCount + 1);
         calSampleCount++;
         
         if (calSampleCount >= 100) {
@@ -398,42 +502,67 @@ bool calibratePulseSensor() {
     }
     
     if (calState == CAL_DETECTING_PULSES) {
-        // Detect pulses as significant deviations from baseline
-        float deviation = rawPPG - calBaseline;
-        float threshold = 20.0;  // Minimum pulse amplitude
+        // Use FILTERED signal - look for AC component peaks
+        float deviation = filteredPPG - calBaseline;
         
-        // Track peak-to-peak amplitude
-        static float minVal = 9999;
+        // Track peak-to-peak on FILTERED signal
+        static float minVal = 0;
         static float maxVal = 0;
-        if (rawPPG < minVal) minVal = rawPPG;
-        if (rawPPG > maxVal) maxVal = rawPPG;
+        
+        if (calSampleCount == 0) {
+            minVal = filteredPPG;
+            maxVal = filteredPPG;
+        }
+        
+        if (filteredPPG < minVal) minVal = filteredPPG;
+        if (filteredPPG > maxVal) maxVal = filteredPPG;
         calPeakToPeak = maxVal - minVal;
         
-        // Detect rising edge (start of pulse)
+        // Dynamic threshold based on observed amplitude
+        float threshold = calPeakToPeak * 0.3;  // 30% of peak-to-peak
+        if (threshold < 5.0) threshold = 5.0;   // Minimum threshold
+        
+        // Detect peaks (positive deviation above threshold)
         bool aboveThreshold = (deviation > threshold);
         
         if (aboveThreshold && !calInPulse) {
-            calInPulse = true;
-            calPulseCount++;
-            calLastPulseTime = millis();
+            unsigned long now = millis();
             
-            Serial.print(".");  // Progress indicator
-            if (calPulseCount % 10 == 0) Serial.println();
+            // Check for reasonable heart rate (40-180 BPM = 333-1500 ms intervals)
+            if (calPulseCount == 0) {
+                calInPulse = true;
+                calPulseCount++;
+                calFirstPulseTime = now;
+                calLastPulseTime = now;
+                Serial.print(".");
+            } else if (now - calLastPulseTime >= 333 && now - calLastPulseTime <= 1500) {
+                calInPulse = true;
+                calPulseCount++;
+                calLastPulseTime = now;
+                
+                Serial.print(".");
+                if (calPulseCount % 10 == 0) Serial.println();
+            }
         } else if (!aboveThreshold && calInPulse) {
             calInPulse = false;
         }
         
         calSampleCount++;
         
-        // Need at least 5 pulses and good amplitude
-        if (calPulseCount >= 5 && calPeakToPeak > 30) {
+        // Need at least 5 pulses with reasonable amplitude
+        if (calPulseCount >= 5 && calPeakToPeak > 10) {
             return true;  // Calibration complete
         }
         
         // Timeout after 30 seconds
         if (calSampleCount > 600) {
-            Serial.println("\n[WARNING] Calibration timeout - continuing anyway");
-            Serial.println("Signal may be weak. Check sensor placement.");
+            Serial.println("\n[WARNING] Calibration timeout");
+            if (calPulseCount >= 3) {
+                Serial.println("Proceeding with weak signal...");
+                return true;
+            }
+            Serial.println("FAILED - No pulses detected. Check sensor placement!");
+            // Still return true to allow trying measurement
             return true;
         }
     }
@@ -459,4 +588,5 @@ void resetCalibration() {
     calLastRaw = 0;
     calInPulse = false;
     calLastPulseTime = 0;
+    calFirstPulseTime = 0;
 }

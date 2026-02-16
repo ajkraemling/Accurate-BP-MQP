@@ -323,6 +323,23 @@ BaselineDetector::~BaselineDetector()
 
 void BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp)
 {
+    // DEBUG: Print what signal we're receiving
+    static unsigned long lastDebugSignal = 0;
+    static int callCount = 0;
+    
+    callCount++;
+    
+    if (millis() - lastDebugSignal > 3000 && windowSize == 40 && minDeviation == 2) {
+        lastDebugSignal = millis();
+        Serial.print("[DETECTOR INPUT] PPG signal received: ");
+        Serial.print(ppgSignal);
+        Serial.print(" at pressure: ");
+        Serial.print(pressureSignal, 1);
+        Serial.print(" mmHg (call #");
+        Serial.print(callCount);
+        Serial.println(")");
+    }
+    
     // Update rolling window
     if (baselineCount < windowSize)
     {
@@ -364,7 +381,7 @@ void BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long
     // Debug output periodically (to avoid spam)
     static unsigned long lastDebug = 0;
     
-    if (millis() - lastDebug > 5000) {  // Every 5 seconds
+    if (millis() - lastDebug > 5000 && windowSize == 40 && minDeviation == 2) {  // Only one detector
         lastDebug = millis();
         Serial.print("[Det w");
         Serial.print(windowSize);
@@ -374,10 +391,14 @@ void BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long
         Serial.print(ppgSignal);
         Serial.print(" mean:");
         Serial.print((int)mean);
+        Serial.print(" stdDev:");
+        Serial.print((int)stdDev);
         Serial.print(" dev:");
         Serial.print((int)(ppgSignal - mean));
         Serial.print(" thr:");
-        Serial.println((int)threshold);
+        Serial.print((int)threshold);
+        Serial.print(" above?:");
+        Serial.println((ppgSignal > threshold) ? "YES" : "NO");
     }
 
     // Detect rising edge (transition from below to above threshold)
@@ -390,6 +411,15 @@ void BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long
         // Minimum interval enforcement (prevent multiple detections per pulse)
         if (lastBeatTime == 0 || (timestamp - lastBeatTime) > MIN_BEAT_INTERVALS_MS)
         {
+            Serial.print("[DETECTION!] Detector w");
+            Serial.print(windowSize);
+            Serial.print(" d");
+            Serial.print(minDeviation);
+            Serial.print(" detected pulse at P=");
+            Serial.print(pressureSignal, 1);
+            Serial.print(" mmHg, signal=");
+            Serial.println(ppgSignal);
+            
             recordDetection(pressureSignal, timestamp);
         }
     }
