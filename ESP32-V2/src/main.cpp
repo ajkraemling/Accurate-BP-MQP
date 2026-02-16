@@ -12,6 +12,8 @@
 #include "SystolicDetector.h"
 #include "MAPDetector.h"
 #include "filters.h"
+#include "MotorControl.h"
+
 
 // =============================================================================
 // REALTIME BP MONITOR CLASS
@@ -193,6 +195,30 @@ bool calibratePulseSensor();
 void printCalibrationStatus();
 void resetCalibration();
 
+// ================= AUTOMATIC CUFF CONTROL =================
+
+volatile bool buttonPressed = false;
+unsigned long lastButtonTime = 0;
+
+enum AutoMode { AUTO_IDLE, AUTO_INFLATING, AUTO_DEFLATING, AUTO_DUMP };
+AutoMode autoMode = AUTO_IDLE;
+
+float lastPressure = 0;
+unsigned long lastPressureTime = 0;
+
+const float MAX_PRESSURE = 185.0;
+const float OCCLUSION_PRESSURE = 140.0;
+const float TARGET_DEFLATE_RATE = 3.0;
+
+void IRAM_ATTR handleButton() {
+    unsigned long t = millis();
+    if (t - lastButtonTime > 300) {
+        buttonPressed = true;
+        lastButtonTime = t;
+    }
+}
+
+
 // =============================================================================
 // SETUP
 // =============================================================================
@@ -214,7 +240,73 @@ void setup() {
     Serial.println();
     
     calState = CAL_DETECTING_BASELINE;
+
+    motor.begin();
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButton, FALLING);
+
 }
+
+void updateCuffControl(float pressure, BPState state, int totalDetections) {
+
+    unsigned long now = millis();
+
+    float dt = (now - lastPressureTime) / 1000.0f;
+    float dPdt = 0;
+    if (dt > 0.05f) dPdt = (pressure - lastPressure) / dt;
+
+    lastPressure = pressure;
+    lastPressureTime = now;
+
+    if (pressure > MAX_PRESSURE)
+        autoMode = AUTO_DUMP;
+
+    if (buttonPressed) {
+        buttonPressed = false;
+        if (autoMode == AUTO_IDLE)
+            autoMode = AUTO_INFLATING;
+        else
+            autoMode = AUTO_DUMP;
+    }
+
+    switch (autoMode) {
+
+    case AUTO_IDLE:
+        motor.stopInflation();
+        motor.stopDeflation();
+        break;
+
+    case AUTO_INFLATING:
+        motor.startInflation();
+
+        // stop when pulses disappear (occlusion)
+        if (pressure > OCCLUSION_PRESSURE && totalDetections < 2) {
+            motor.stopInflation();
+            autoMode = AUTO_DEFLATING;
+        }
+        break;
+
+    case AUTO_DEFLATING:
+        motor.startDeflation();
+
+        // regulate deflation speed ~3 mmHg/sec
+        if (dPdt < -TARGET_DEFLATE_RATE)
+            motor.stopDeflation();
+        else
+            motor.startDeflation();
+
+        if (state == COMPLETE)
+            autoMode = AUTO_DUMP;
+        break;
+
+    case AUTO_DUMP:
+        motor.emergencyStop();
+        if (pressure < 20)
+            autoMode = AUTO_IDLE;
+        break;
+    }
+}
+
 
 // =============================================================================
 // LOOP
@@ -230,14 +322,14 @@ void loop() {
     if (now - lastSample >= SAMPLE_RATE_MS) {
         lastSample = now;
 
-        //CALIBRATION PHASE 
+        // ================= CALIBRATION PHASE =================
         if (calState != CAL_COMPLETE) {
             if (calibratePulseSensor()) {
                 float avgInterval = 0;
                 if (calPulseCount > 1 && calLastPulseTime > calFirstPulseTime) {
                     avgInterval = (float)(calLastPulseTime - calFirstPulseTime) / (calPulseCount - 1);
                 }
-                
+
                 Serial.println("\n✓ Calibration complete!");
                 if (avgInterval > 0) {
                     Serial.print("Detected pulse rate: ");
@@ -247,7 +339,8 @@ void loop() {
                 Serial.print("Signal amplitude: ");
                 Serial.print(calPeakToPeak, 0);
                 Serial.println(" units");
-                Serial.println("\nReady. Inflate cuff to begin measurement...\n");
+                Serial.println("\nReady. Press button to begin automatic measurement...\n");
+
                 calState = CAL_COMPLETE;
             } else if (now - lastCalPrint > 2000) {
                 lastCalPrint = now;
@@ -256,47 +349,49 @@ void loop() {
             return;
         }
 
-        //MEASUREMENT PHASE 
+        // ================= MEASUREMENT PHASE =================
         float pressure = readPressureSensor();
         int rawPPG = readPPGSensor();
         int filteredPPG = ppgSensor.read();
 
         BPState prevState = lastState;
-        
+
+        // ---- PROCESS THE SAMPLE FIRST ----
         bpMonitor.processMeasurement(pressure, rawPPG, filteredPPG, now);
 
         BPState state = bpMonitor.getCurrentState();
 
-        // Print state changes
+        // ---- COUNT DETECTIONS AFTER PROCESSING ----
+        int totalDetections = 0;
+        BPMonitor* mon = bpMonitor.getMonitor();
+        for (int i = 0; i < mon->getDetectorCount(); i++)
+            totalDetections += mon->getDetector(i)->getDetectionCount();
+
+        // ---- NOW CONTROL THE CUFF ----
+        updateCuffControl(pressure, state, totalDetections);
+
+        // ================= STATE CHANGE =================
         if (state != prevState) {
             printStateChange(state);
-            
-            // Reset measurement tracking when starting
+
             if (state == MEASURING) {
                 Serial.println("Resetting signal tracking for new measurement...");
                 measureStats.reset(rawPPG, filteredPPG);
             }
         }
 
-        // Update stats during measurement
+        // ================= TRACKING =================
         if (state == MEASURING && measureStats.active) {
             measureStats.update(rawPPG, filteredPPG);
         }
 
-        // Print periodic status during measurement
+        // ================= DEBUG PRINT =================
         if (state == MEASURING && (now - lastDebugPrint > 1000)) {
             lastDebugPrint = now;
-            
-            // Count total detections
-            int totalDetections = 0;
-            BPMonitor* mon = bpMonitor.getMonitor();
-            for (int i = 0; i < mon->getDetectorCount(); i++) {
-                totalDetections += mon->getDetector(i)->getDetectionCount();
-            }
-            
+
             int rawRange = measureStats.maxPPG - measureStats.minPPG;
             int filteredRange = measureStats.maxFiltered - measureStats.minFiltered;
-            
+
             Serial.print("Measuring... P:");
             Serial.print(pressure, 0);
             Serial.print(" mmHg | Raw:");
@@ -311,7 +406,7 @@ void loop() {
             Serial.println(totalDetections);
         }
 
-        // Diagnostic output every 5 seconds
+        // ================= DIAGNOSTICS =================
         if (state == MEASURING && (now - lastDiagnostic > 5000)) {
             lastDiagnostic = now;
             Serial.print("[DIAGNOSTIC] Raw:");
@@ -322,16 +417,15 @@ void loop() {
             Serial.println(measureStats.maxFiltered - measureStats.minFiltered);
         }
 
-        // Handle completion
+        // ================= COMPLETION =================
         if (state == COMPLETE && prevState != COMPLETE) {
             measureStats.active = false;
             displayResults();
-            
-            // Wait a moment then reset everything including calibration
+
             delay(2000);
             bpMonitor.reset();
             resetCalibration();
-            
+
             Serial.println("\n========================================");
             Serial.println("Recalibrating pulse sensor...");
             Serial.println("Please keep finger on sensor.");
@@ -341,6 +435,7 @@ void loop() {
         lastState = state;
     }
 }
+
 
 // =============================================================================
 // SENSOR READ FUNCTIONS
