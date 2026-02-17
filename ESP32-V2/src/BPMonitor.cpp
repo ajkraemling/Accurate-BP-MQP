@@ -59,6 +59,7 @@ void BPMonitor::reset()
 }
 
 float BPMonitor::getMAP() { return mapDetector->getMAP(); }
+MotorController* BPMonitor::getMotorController() { return motor; }
 MAPDetector* BPMonitor::getMAPDetector() { return mapDetector; }
 
 bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long timestamp)
@@ -197,12 +198,12 @@ void BPMonitor::update(const BPMeasurement& measurement)
     case INFLATING:
     { 
         // Use a simple beat detection algorithm to detect when last beat was detected
-        if (ppgSignal > 200) lastBeatDetectedPressure = pressure;
+        if (ppgSignal > 300) lastBeatDetectedPressure = pressure;
 
         if (
             pressure < (maxPressure - PRESSURE_DROP_THRESHOLD) // For omron, if we notice a pressure drop start measuring
             || pressure > 200 // For our motor, based on highest pressure it should go
-            || (pressure - lastBeatDetectedPressure) > 30) // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
+            || (pressure - lastBeatDetectedPressure) > 35) // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
             {
             state = MEASURING;
             startTime = currentTime;

@@ -86,6 +86,8 @@ void setup()
 
     // Print headers
     Serial.println("Time,Pressure,rawPPGSignal,PPGSignal");
+    // Start, we will put this in a loop and connect it to a button later
+    bpMonitor.startInflation();
 }
 
 void loop()

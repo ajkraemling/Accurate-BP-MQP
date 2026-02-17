@@ -66,7 +66,8 @@ while not header_found and timeout_counter < 150:  # 15 second timeout
         
         # Check for header (either format)
         if (line.startswith("time,pressure,rawPPG,ppg") or 
-            line.startswith("Time,Pressure,PPGSignal,rawPPGSignal")):
+            line.startswith("Time,Pressure,PPGSignal,rawPPGSignal") or
+            line.startswith("Time,Pressure,rawPPGSignal,PPGSignal")):
             header_found = True
             print("✓ Header found! Starting data collection...")
             break
@@ -200,7 +201,9 @@ def update(frame):
     global in_summary, data_count
     
     # Process multiple lines per frame
-    for _ in range(5):
+    for _ in range(100):
+        if not ser.in_waiting:
+            break
         
         if not ser.in_waiting:
             break
@@ -246,7 +249,7 @@ def update(frame):
         try:
             parts = line.split(',')
             
-            if len(parts) != 4:
+            if len(parts) != 5:
                 continue
             
             t = float(parts[0])
@@ -272,7 +275,7 @@ def update(frame):
             if data_count % 200 == 0:
                 print(f"Samples: {data_count}, Pressure: {pres:.1f} mmHg, PPG: {ppg_val:.1f}")
             
-        except ValueError:
+        except (ValueError, IndexError):
             pass
     
     # Update plots
@@ -338,6 +341,6 @@ print("\n✓ Starting live plot...")
 print("Close the window to stop and save.\n")
 
 fig.canvas.mpl_connect('close_event', on_close)
-ani = animation.FuncAnimation(fig, update, interval=50, blit=False)
+ani = animation.FuncAnimation(fig, update, interval=50, blit=True)
 plt.tight_layout()
 plt.show()
