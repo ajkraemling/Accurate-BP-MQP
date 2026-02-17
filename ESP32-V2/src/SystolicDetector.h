@@ -72,7 +72,7 @@ protected:
 public:
     SystolicDetector(const char* detectorName);
     virtual ~SystolicDetector() {}
-    virtual bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) = 0;
+    virtual bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp, unsigned long recentBaselineBeat) = 0;
     virtual void reset() = 0;
     
     const char* getName() const;
@@ -107,7 +107,7 @@ public:
     BaselineDetector(int window, float threshold,
                      int minDev);
     ~BaselineDetector();
-    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp, unsigned long recentBaselineBeat) override;
     void reset() override;
 };
 
@@ -117,7 +117,7 @@ public:
     explicit DerivativeDetector(int derivThreshold);
     ~DerivativeDetector() override;
 
-    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp, unsigned long recentBaselineBeat) override;
     void reset() override;
 
 private:
@@ -160,7 +160,7 @@ public:
     explicit EnvelopeSystolicDetector(int window);
     ~EnvelopeSystolicDetector() override;
 
-    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp) override;
+    bool detect(int ppgSignal, float pressureSignal, unsigned long timestamp, unsigned long recentBaselineBeat) override;
     void reset() override;
 };
 #endif

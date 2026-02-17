@@ -13,6 +13,8 @@
 #include "MAPDetector.h"
 #include "filters.h"
 
+#include "MotorController.h"
+
 // Declare objects 
 
 PressureSensor pressureSensor;
@@ -23,6 +25,10 @@ DisplayPresenter presenter(&lcd);
 
 BPMonitor bpMonitor;
 PPGBandpassFilter ppgFilter(1000.0f / SAMPLE_RATE_MS);
+
+MotorController motor;
+
+MAPDetector mapDetector;
 
 float lastMAP = 0;
 float lastSys = 0;
@@ -49,6 +55,11 @@ void setup()
 
     // BP Monitor Setup 
     bpMonitor.setFilter(&ppgFilter);
+    bpMonitor.setMAPDetector(&mapDetector);
+    bpMonitor.setMotorController(&motor);
+
+    // Motor set up
+    bpMonitor.getMotorController()->begin();
 
     int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80};
     float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
@@ -176,7 +187,7 @@ void loop()
         Serial.println(",0");
 
         Serial.print("BPM,0,");
-        Serial.print(monitor.getBaselineBPM(), 0);
+        Serial.print(bpMonitor.getBaselineBPM(), 0);
         Serial.println(",0");
 
         Serial.println("#SUMMARY_END");

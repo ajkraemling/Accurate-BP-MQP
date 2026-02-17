@@ -41,7 +41,7 @@ echo ========== BP Detector CSV Tester ==========
 echo.
 
 echo Compiling...
-g++ -std=c++11 -O2 -I./src csv_test_main.cpp src/SystolicDetector.cpp src/BPMonitor.cpp src/MAPDetector.cpp src/filters.cpp -o bp_detector_test.exe
+g++ -std=c++11 -O2 -I./src csv_test_main.cpp src/SystolicDetector.cpp src/BPMonitor.cpp src/MAPDetector.cpp src/filters.cpp src/MotorController.cpp -o bp_detector_test.exe
 
 if %errorlevel% neq 0 (
     echo.

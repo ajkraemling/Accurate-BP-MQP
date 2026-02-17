@@ -6,13 +6,15 @@ SOURCES = csv_test_main.cpp \
           src/SystolicDetector.cpp \
           src/BPMonitor.cpp \
           src/MAPDetector.cpp \
-          src/filters.cpp
+          src/filters.cpp \
+		  src/MotorController.cpp
 
 OBJECTS = csv_test_main.o \
           SystolicDetector.o \
           BPMonitor.o \
           MAPDetector.o \
-          filters.o
+          filters.o \ 
+		  MotorController.o
 
 TARGET = bp_detector_test
 
@@ -39,6 +41,9 @@ MAPDetector.o: src/MAPDetector.cpp src/MAPDetector.h
 
 filters.o: src/filters.cpp src/filters.h
 	$(CXX) $(CXXFLAGS) -c src/filters.cpp -o filters.o
+
+filters.o: src/MotorController.cpp src/MotorController.h
+	$(CXX) $(CXXFLAGS) -c src/MotorController.cpp -o MotorController.o
 
 # Clean build files
 clean:

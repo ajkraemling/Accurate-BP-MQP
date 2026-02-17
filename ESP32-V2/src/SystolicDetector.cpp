@@ -306,7 +306,7 @@ BaselineDetector::~BaselineDetector()
     delete[] baseline;
 }
 
-bool BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp)
+bool BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp, unsigned long recentBaselineBeat)
 {
     // Update rolling window
     if (baselineCount < windowSize)
@@ -325,6 +325,9 @@ bool BaselineDetector::detect(int ppgSignal, float pressureSignal, unsigned long
 
     if (baselineCount < windowSize)
         return false;
+
+    // Max delay from bandpass is 2/pi ~= 0.637 at 0.5 Hz. This is equivalent to 30 bpm. There is also a delay of approximately 100 ms from arm to finger.
+    if (timestamp - recentBaselineBeat > 737) return false;
 
     // Calculate statistics
     float mean = (float)baselineSum / windowSize;
@@ -389,7 +392,7 @@ DerivativeDetector::~DerivativeDetector() = default;
 
 bool DerivativeDetector::detect(int ppgSignal,
                                 float pressureSignal,
-                                unsigned long timestamp)
+                                unsigned long timestamp, unsigned long recentBaselineBeat)
 {
     if (!hasPrev) {
         prevSample = ppgSignal;
@@ -399,6 +402,9 @@ bool DerivativeDetector::detect(int ppgSignal,
     }
 
     int derivative = ppgSignal - prevSample;
+
+    // Max delay from bandpass is 2/pi ~= 0.637 at 0.5 Hz. This is equivalent to 30 bpm. There is also a delay of approximately 100 ms from arm to finger.
+    if (timestamp - recentBaselineBeat > 737) return false;
 
     unsigned long minInterval =
         hrRange.isValid ? hrRange.minInterval : MIN_BEAT_INTERVALS_MS;
@@ -591,7 +597,7 @@ float EnvelopeSystolicDetector::getAdaptiveEnvelopeThreshold() {
     return adaptiveThresh;
 }
 
-bool EnvelopeSystolicDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp) {
+bool EnvelopeSystolicDetector::detect(int ppgSignal, float pressureSignal, unsigned long timestamp, unsigned long recentBaselineBeat) {
     float env = envelopeDetector.update((float)ppgSignal);
     
     envelopeHistory[historyIdx] = env;
@@ -603,6 +609,9 @@ bool EnvelopeSystolicDetector::detect(int ppgSignal, float pressureSignal, unsig
     
     if (historyCount < windowSize || detectionMade) return false;
     
+    // Max delay from bandpass is 2/pi ~= 0.637 at 0.5 Hz. This is equivalent to 30 bpm. There is also a delay of approximately 100 ms from arm to finger.
+    if (timestamp - recentBaselineBeat > 737) return false;
+
     // Use adaptive windows and thresholds
     int flatWin = getAdaptiveFlatWindow();
     int riseWin = getAdaptiveRiseWindow();
@@ -631,7 +640,6 @@ bool EnvelopeSystolicDetector::detect(int ppgSignal, float pressureSignal, unsig
             systolic = est;
         }
     }
-    
     recordDetection(systolic, timestamp);
     detectionMade = true;
     return true;

@@ -7,13 +7,14 @@
 
 BPMonitor::BPMonitor()
     : state(IDLE), systolic(0), maxPressure(0), startTime(0),
-      detectorCount(0), baselineBeatCount(0), hrCalculated(false),
-      pressureHistoryIdx(0), pressureHistoryCount(0), lastPressureDerivative(0), lastPeakTime(0)
+      detectorCount(0), baselineBeatCount(0), hrCalculated(false), lastBeatDetectedPressure(999),
+      pressureHistoryIdx(0), pressureHistoryCount(0), lastPressureDerivative(0), lastPeakTime(0), startInflating(false)
 {
     for (int i = 0; i < MAX_DETECTORS; i++)
     {
         detectors[i] = nullptr;
     }
+
     memset(baselineBeats, 0, sizeof(baselineBeats));
     memset(pressureHistory, 0, sizeof(pressureHistory));
 }
@@ -28,6 +29,10 @@ void BPMonitor::addDetector(SystolicDetector *detector)
 
 void BPMonitor::setFilter(PPGBandpassFilter* filter) { externalFilter = filter; }
 
+void BPMonitor::setMotorController(MotorController* motorController) { motor = motorController; }
+
+void BPMonitor::setMAPDetector(MAPDetector* detector) { mapDetector = detector; }
+
 void BPMonitor::reset()
 {
     state = IDLE;
@@ -40,10 +45,12 @@ void BPMonitor::reset()
     pressureHistoryCount = 0;
     lastPressureDerivative = 0;
     lastPeakTime = 0;
+    lastBeatDetectedPressure = 999;
+    startInflating = false;
     memset(baselineBeats, 0, sizeof(baselineBeats));
     memset(pressureHistory, 0, sizeof(pressureHistory));
     
-    mapDetector.reset();
+    mapDetector->reset();
 
     for (int i = 0; i < detectorCount; i++)
     {
@@ -51,8 +58,8 @@ void BPMonitor::reset()
     }
 }
 
-float BPMonitor::getMAP() { return mapDetector.getMAP(); }
-MAPDetector* BPMonitor::getMAPDetector() { return &mapDetector; }
+float BPMonitor::getMAP() { return mapDetector->getMAP(); }
+MAPDetector* BPMonitor::getMAPDetector() { return mapDetector; }
 
 bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long timestamp)
 {
@@ -169,36 +176,44 @@ void BPMonitor::update(const BPMeasurement& measurement)
     unsigned long currentTime = measurement.timestamp;
     
     // Track max pressure
-    if (pressure > maxPressure)
-    {
-        maxPressure = pressure;
-    }
+    if (pressure > maxPressure) maxPressure = pressure;
 
     switch (state)
     {
     case IDLE:
-        if (pressure > BP_MIN_IDLE_PRESSURE)
+    {
+        if (pressure > BP_MIN_IDLE_PRESSURE || startInflating)
         {
             state = INFLATING;
-
-            mapDetector.reset();
+            mapDetector->reset();
             hrCalculated = false;
             baselineBeatCount = 0;
             maxPressure = pressure;
+            motor->startInflation(); 
         }
         break;
+    }
 
     case INFLATING:
-        if (pressure >= BP_START_PRESSURE)
-        {
-            if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD)) {
-                state = MEASURING;
-                startTime = currentTime;
-            }
+    { 
+        // Use a simple beat detection algorithm to detect when last beat was detected
+        if (ppgSignal > 200) lastBeatDetectedPressure = pressure;
+
+        if (
+            pressure < (maxPressure - PRESSURE_DROP_THRESHOLD) // For omron, if we notice a pressure drop start measuring
+            || pressure > 200 // For our motor, based on highest pressure it should go
+            || (pressure - lastBeatDetectedPressure) > 30) // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
+            {
+            state = MEASURING;
+            startTime = currentTime;
+            motor->startDeflation();
         }
+
         break;
+    }
 
     case MEASURING:
+    {
         if (detectPressureOscillation(pressure, currentTime))
         {
             if (baselineBeatCount >= 2)
@@ -207,11 +222,12 @@ void BPMonitor::update(const BPMeasurement& measurement)
             }
         }
 
-        mapDetector.addSample(pressure, currentTime);
+        mapDetector->addSample(pressure, currentTime);
 
+        unsigned long recentBeat = baselineBeats[baselineBeatCount-1];
         for (int i = 0; i < detectorCount; i++)
         {
-            detectors[i]->detect(ppgSignal, pressure, currentTime);
+            detectors[i]->detect(ppgSignal, pressure, currentTime, recentBeat);
         }
 
         if (pressure < BP_MIN_IDLE_PRESSURE)
@@ -220,12 +236,15 @@ void BPMonitor::update(const BPMeasurement& measurement)
         }
 
         break;
+    }
 
 
     case COMPLETE:
-        mapDetector.detectMAP();
+    {
+        mapDetector->detectMAP();
         // Show results, maybe loop back to IDLE?
         break;
+    }
     }
 }
 
@@ -305,6 +324,12 @@ const unsigned long* BPMonitor::getBaselineBeats(int& outCount) const
     return baselineBeats;
 }
 
+void BPMonitor::startInflation() {startInflating = true;};
+
+void BPMonitor::holdPressure() {
+    // Add hold pressure code here :)
+    return;
+};
 
 float BPMonitor::getBaselineBPM() const
 {

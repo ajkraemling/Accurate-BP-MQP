@@ -37,6 +37,7 @@ public:
 #include "MAPDetector.h"
 #include "BPMonitor.h"
 #include "filters.h"
+#include "MotorController.h"
 
 // CSV Row structure
 struct CSVRow {
@@ -846,6 +847,12 @@ int main(int argc, char* argv[]) {
     std::cout << "========== BP Detector Multi-Run CSV Processor ==========\n";
 
     BPMonitor monitor;
+    MotorController motor;
+    MAPDetector mapDetector;
+
+    monitor.setMAPDetector(&mapDetector);
+    monitor.setMotorController(&motor);
+
     std::vector<SystolicDetector*> allocatedDetectors;
 
     // Add detectors

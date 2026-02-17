@@ -4,6 +4,7 @@
 #include "filters.h"
 #include "MAPDetector.h"
 #include "config.h"
+#include "MotorController.h"
 
 enum BPState
 {
@@ -59,6 +60,8 @@ private:
     HeartRateRange baselineHR;
     bool hrCalculated;
     unsigned long lastBPMMeasurement;
+
+    int lastBeatDetectedPressure; // pressure at which last beat was detected for deflation
     
     // Pressure oscillation detection for baseline HR
     static const int PRESSURE_HISTORY_SIZE = 5;
@@ -71,13 +74,17 @@ private:
     // Optional external filter to configure
     PPGBandpassFilter* externalFilter;
 
-    MAPDetector mapDetector;
+    MAPDetector* mapDetector;
+
+    MotorController* motor;
     
     // Calculate baseline HR from inflation pressure oscillations
     void calculateBaselineHeartRate(unsigned long currentTime);
     
     // Detect pressure oscillations (heartbeats)
     bool detectPressureOscillation(float currentPressure, unsigned long timestamp);
+
+    bool startInflating;
 
 public:
     BPMonitor();
@@ -88,6 +95,10 @@ public:
     
     // Set external filter to be configured based on baseline HR
     void setFilter(PPGBandpassFilter* filter);
+
+    // Set motorController
+    void setMotorController(MotorController* motorController);
+    MotorController* getMotorController();
     
     BPStatus getStatus() const;
     float getSystolic() const;
@@ -109,6 +120,11 @@ public:
     // MAP 
     float getMAP();
     MAPDetector* getMAPDetector();
+    void setMAPDetector(MAPDetector* detector);
+
+    // Pressure
+    void startInflation();
+    void holdPressure();
 };
 
 #endif
