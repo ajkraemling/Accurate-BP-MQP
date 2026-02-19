@@ -38,7 +38,7 @@ public:
     void startInflation(int speed = 255);
     void stopInflation();
 
-    void startDeflation(int rate = 80);
+    void startDeflation(int rate);
     void stopDeflation();
 
     void emergencyStop();

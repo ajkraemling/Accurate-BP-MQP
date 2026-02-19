@@ -42,8 +42,8 @@ void MotorController::startDeflation(int rate) {
     stopInflation();
     // Cap rate so valve never fully de-energizes and dumps too fast
     // Tune this max value - lower = slower deflation
-    int controlledRate = constrain(rate, 0, 80);
-    setSolenoidOpening(controlledRate);
+    //int controlledRate = constrain(rate, 0, 70);
+    setSolenoidOpening(rate);
 }
 
 void MotorController::stopDeflation() {

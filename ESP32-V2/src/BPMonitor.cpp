@@ -209,7 +209,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
         {
             state = MEASURING;
             startTime = currentTime;
-            motor->startDeflation();  // Just call it once, no while loop
+            motor->startDeflation(55);  // Just call it once, no while loop
         }
         break;
     }
@@ -234,9 +234,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
 
         // Controlled deflation - slow down as we approach 80 mmHg
         if (ppgSignal > 100 || pressure < 80) {
-            float headroom = pressure - 80.0f;
-            int rate = (int)constrain(headroom * 0.5f, 5, 100);
-            motor->startDeflation(rate);
+            motor->startDeflation(100);
         }
 
         if (pressure < BP_MIN_IDLE_PRESSURE)
