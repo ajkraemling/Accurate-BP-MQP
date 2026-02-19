@@ -25,6 +25,8 @@ void MotorController::startInflation(int speed) {
     stopDeflation();
     setMotorDirection(true);
     setMotorSpeed(speed);
+    setSolenoidOpening(0);
+
     // inflating = true;
 }
 
@@ -38,8 +40,10 @@ void MotorController::startDeflation(int rate) {
     // if (deflating) return;
 
     stopInflation();
-    setSolenoidOpening(rate);
-    // deflating = true;
+    // Cap rate so valve never fully de-energizes and dumps too fast
+    // Tune this max value - lower = slower deflation
+    int controlledRate = constrain(rate, 0, 80);
+    setSolenoidOpening(controlledRate);
 }
 
 void MotorController::stopDeflation() {
@@ -70,13 +74,15 @@ void MotorController::setSolenoidOpening(int opening) {
     valveOpening = constrain(opening, 0, 255);
 
     if (valveOpening == 0) {
-        digitalWrite(SOLENOID_IN3_PIN, LOW);
-        digitalWrite(SOLENOID_IN4_PIN, LOW);
-        ledcWrite(SOLENOID_PWM_CHANNEL, 0);
-    } else {
+        // Fully CLOSED - energize fully to shut the normally-open valve
         digitalWrite(SOLENOID_IN3_PIN, HIGH);
         digitalWrite(SOLENOID_IN4_PIN, LOW);
-        ledcWrite(SOLENOID_PWM_CHANNEL, valveOpening);
+        ledcWrite(SOLENOID_PWM_CHANNEL, 255);
+    } else {
+        // Partially/fully OPEN - reduce power to let valve open proportionally
+        digitalWrite(SOLENOID_IN3_PIN, HIGH);
+        digitalWrite(SOLENOID_IN4_PIN, LOW);
+        ledcWrite(SOLENOID_PWM_CHANNEL, 255 - valveOpening);
     }
 }
 #else

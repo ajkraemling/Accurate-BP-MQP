@@ -18,7 +18,7 @@ print("Starting Blood Pressure Monitor...")
 # SERIAL SETUP
 # ============================================================================
 
-PORT = 'COM5'
+PORT = "/dev/cu.usbserial-0001"
 BAUD = 115200
 
 try:
@@ -237,10 +237,22 @@ def update(frame):
 
         
         if in_summary:
-            parts = line.split(',')
-            if len(parts) == 4:
-                summary_rows.append(parts)
+            parts = [p.strip() for p in line.split(',')]
+
+            # Accept rows with at least 3 columns
+            if len(parts) >= 3:
+                # Force into 4-column format for CSV consistency
+                while len(parts) < 4:
+                    parts.append("0")
+
+                summary_rows.append(parts[:4])
+
+                # DEBUG PRINT (optional)
+                if parts[0] == "Ensemble":
+                    print(f"✓ Ensemble received: {parts}")
+
             continue
+
         
         # NORMAL DATA
         if ',' not in line:

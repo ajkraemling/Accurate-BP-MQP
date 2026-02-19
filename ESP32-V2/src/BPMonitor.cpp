@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <algorithm>
+#include <Arduino.h>
 
 BPMonitor::BPMonitor()
     : state(IDLE), systolic(0), maxPressure(0), startTime(0),
@@ -186,11 +187,13 @@ void BPMonitor::update(const BPMeasurement& measurement)
         if (pressure > BP_MIN_IDLE_PRESSURE || startInflating)
         {
             state = INFLATING;
+            Serial.print("state = ");
+            Serial.println(state);
             mapDetector->reset();
             hrCalculated = false;
             baselineBeatCount = 0;
             maxPressure = pressure;
-            motor->startInflation(); 
+            motor->startInflation(255); 
         }
         break;
     }
@@ -198,18 +201,16 @@ void BPMonitor::update(const BPMeasurement& measurement)
     case INFLATING:
     { 
         // Use a simple beat detection algorithm to detect when last beat was detected
-        if (ppgSignal > 300) lastBeatDetectedPressure = pressure;
+        if (ppgSignal > 100) lastBeatDetectedPressure = pressure;
 
-        if (
-            pressure < (maxPressure - PRESSURE_DROP_THRESHOLD) // For omron, if we notice a pressure drop start measuring
+        if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD) // For omron, if we notice a pressure drop start measuring
             || pressure > 200 // For our motor, based on highest pressure it should go
             || (pressure - lastBeatDetectedPressure) > 35) // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
-            {
+        {
             state = MEASURING;
             startTime = currentTime;
-            motor->startDeflation();
+            motor->startDeflation();  // Just call it once, no while loop
         }
-
         break;
     }
 
@@ -231,9 +232,17 @@ void BPMonitor::update(const BPMeasurement& measurement)
             detectors[i]->detect(ppgSignal, pressure, currentTime, recentBeat);
         }
 
+        // Controlled deflation - slow down as we approach 80 mmHg
+        if (ppgSignal > 100 || pressure < 80) {
+            float headroom = pressure - 80.0f;
+            int rate = (int)constrain(headroom * 0.5f, 5, 100);
+            motor->startDeflation(rate);
+        }
+
         if (pressure < BP_MIN_IDLE_PRESSURE)
         {
             state = COMPLETE;
+
         }
 
         break;
@@ -348,125 +357,227 @@ float BPMonitor::getBaselineBPM() const
 
 BPResult BPMonitor::getEnsembleResult() const
 {
-    BPResult result{};
-    result.systolic = 0;
-    result.confidence = 0;
-    result.confidenceIntervalLow = 0;
-    result.confidenceIntervalHigh = 0;
-    result.agreementCount = 0;
-    result.totalDetectors = 0;
+    Serial.println("[ENS] getEnsembleResult() entered");
 
-    // Temporary structure for all hypotheses from all detectors
     struct DetectorReading {
         float pressure;
-        float weight;  // softmax-normalized confidence
+        float weight;
     };
 
-    DetectorReading readings[MAX_DETECTORS * MAX_READINGS_PER_DETECTOR];
+    static DetectorReading readings[MAX_DETECTORS * MAX_READINGS_PER_DETECTOR];
+    static int detectorStartIndices[MAX_DETECTORS];
+
+    BPResult result{};
+    result.systolic = 0.0f;
+    result.confidence = 0.0f;
+    result.confidenceIntervalLow = 0.0f;
+    result.confidenceIntervalHigh = 0.0f;
+    result.agreementCount = 0;
+    result.totalDetectors = detectorCount;
+
+
+    if (detectorCount <= 0)
+    {
+        return result;
+    }
+
+    const int MAX_TOTAL_READINGS = MAX_DETECTORS * MAX_READINGS_PER_DETECTOR;
     int readingCount = 0;
 
-    // --- 1. Collect all normalized hypotheses from detectors ---
-    int detectorStartIndices[MAX_DETECTORS];
+    // --- 1. Collect hypotheses ---
     for (int i = 0; i < detectorCount; i++)
     {
-        if (readingCount >= MAX_DETECTORS * MAX_READINGS_PER_DETECTOR) break;
-        
+        if (readingCount >= MAX_TOTAL_READINGS)
+        {
+            
+            break;
+        }
+
         detectorStartIndices[i] = readingCount;
 
+        if (detectors[i] == nullptr)
+        {
+
+            continue;
+        }
+
         DetectionRecord top[MAX_READINGS_PER_DETECTOR];
-        int actualCount = detectors[i]->softmaxNormalize(top, MAX_READINGS_PER_DETECTOR, 0.1f); // T=0.1 for sharpening
+        int actualCount = detectors[i]->softmaxNormalize(
+            top,
+            MAX_READINGS_PER_DETECTOR,
+            0.1f
+        );
+
 
         for (int j = 0; j < actualCount; j++)
         {
-            if (top[j].pressure <= 40 || top[j].pressure >= 185) continue;
+            if (readingCount >= MAX_TOTAL_READINGS)
+            {
+                break;
+            }
 
-            readings[readingCount].pressure = top[j].pressure;
-            readings[readingCount].weight = top[j].confidence;  // already normalized
+            float p = top[j].pressure;
+            float w = top[j].confidence;
+
+            if (p <= 40.0f || p >= 185.0f)
+            {
+
+                continue;
+            }
+
+            if (!isfinite(p) || !isfinite(w))
+            {
+
+                continue;
+            }
+
+            readings[readingCount].pressure = p;
+            readings[readingCount].weight = w;
             readingCount++;
         }
     }
 
-    result.totalDetectors = detectorCount;
 
-    if (readingCount == 0)
-        return result;  // no valid readings
 
-    for (int i = 0; i < detectorCount; i++) {
+    if (readingCount <= 0)
+    {
+
+        return result;
+    }
+
+    // --- 2. Normalize per-detector contribution ---
+    for (int i = 0; i < detectorCount; i++)
+    {
         int startIdx = detectorStartIndices[i];
         int endIdx = (i + 1 < detectorCount) ? detectorStartIndices[i + 1] : readingCount;
-        
-        // Sum this detector's total weight
-        float detectorWeightSum = 0;
-        for (int j = startIdx; j < endIdx; j++) {
+
+        if (startIdx >= readingCount)
+            continue;
+
+        float detectorWeightSum = 0.0f;
+
+        for (int j = startIdx; j < endIdx; j++)
             detectorWeightSum += readings[j].weight;
-        }
-        
-        // Normalize so detector contributes exactly 1.0
-        if (detectorWeightSum > 0) {
-            for (int j = startIdx; j < endIdx; j++) {
+
+
+        if (detectorWeightSum > 0.000001f)
+        {
+            for (int j = startIdx; j < endIdx; j++)
                 readings[j].weight /= detectorWeightSum;
-            }
         }
     }
 
-    // --- 2. Compute weighted mean (systolic) ---
-    float weightedSum = 0;
-    float totalWeight = 0;
+    // --- 3. Weighted mean ---
+    float weightedSum = 0.0f;
+    float totalWeight = 0.0f;
+
     for (int i = 0; i < readingCount; i++)
     {
         weightedSum += readings[i].pressure * readings[i].weight;
         totalWeight += readings[i].weight;
     }
+
+
+    if (totalWeight <= 0.000001f)
+    {
+
+        return result;
+    }
+
     result.systolic = weightedSum / totalWeight;
 
-    // --- 3. Compute weighted standard deviation ---
-    float weightedVariance = 0;
+    if (!isfinite(result.systolic))
+    {
+
+        return result;
+    }
+
+    // --- 4. Weighted standard deviation ---
+    float weightedVariance = 0.0f;
+
     for (int i = 0; i < readingCount; i++)
     {
         float diff = readings[i].pressure - result.systolic;
         weightedVariance += readings[i].weight * diff * diff;
     }
-    float weightedStdDev = sqrt(weightedVariance / totalWeight);
 
-    // --- 4. Count agreement (within ±1 std dev) ---
+    float weightedStdDev = 0.0f;
+
+    if (totalWeight > 0.000001f)
+        weightedStdDev = sqrtf(weightedVariance / totalWeight);
+
+    if (!isfinite(weightedStdDev))
+        weightedStdDev = 0.0f;
+
+
+
+    // --- 5. Agreement within ±1 std dev ---
     int agreementCount = 0;
-    float agreementWeightSum = 0;
+    float agreementWeightSum = 0.0f;
+
     for (int i = 0; i < readingCount; i++)
     {
         float diff = readings[i].pressure - result.systolic;
-        if (diff >= -weightedStdDev && diff <= weightedStdDev)
+
+        if (fabs(diff) <= weightedStdDev)
         {
             agreementCount++;
             agreementWeightSum += readings[i].weight;
         }
     }
+
     result.agreementCount = agreementCount;
 
-    // --- 5. Compute ensemble confidence ---
-    float agreementRatio = (float)agreementCount / readingCount;
-    float avgAgreementWeight = agreementWeightSum / agreementCount;
+    float agreementRatio = 0.0f;
+    if (readingCount > 0)
+        agreementRatio = (float)agreementCount / (float)readingCount;
 
-    // Sample size factor saturates around 60 detectors
-    float sampleSizeFactor = 1.0f - expf(-detectorCount / 20.0f);
+    float avgAgreementWeight = 0.0f;
+    if (agreementCount > 0)
+        avgAgreementWeight = agreementWeightSum / agreementCount;
+
+    float sampleSizeFactor = 1.0f - expf(-(float)detectorCount / 20.0f);
 
     result.confidence = agreementRatio * avgAgreementWeight * sampleSizeFactor;
-    if (result.confidence > 1.0f) result.confidence = 1.0f;
 
-    // --- 6. Compute 95% confidence interval ---
-    float effectiveN = totalWeight;  // sum of softmax weights
-    float standardError = weightedStdDev / sqrtf(effectiveN);
 
-    float ciMultiplier = 1.96f * (2.0f - result.confidence);  // widen CI for low confidence
-    result.confidenceIntervalLow = result.systolic - (ciMultiplier * standardError);
+    if (!isfinite(result.confidence) || result.confidence < 0.0f)
+        result.confidence = 0.0f;
+
+    if (result.confidence > 1.0f)
+        result.confidence = 1.0f;
+
+    // --- 6. Confidence interval ---
+    float effectiveN = totalWeight;
+    float standardError = 0.0f;
+
+    if (effectiveN > 0.000001f)
+        standardError = weightedStdDev / sqrtf(effectiveN);
+
+    float ciMultiplier = 1.96f * (2.0f - result.confidence);
+
+    result.confidenceIntervalLow  = result.systolic - (ciMultiplier * standardError);
     result.confidenceIntervalHigh = result.systolic + (ciMultiplier * standardError);
 
+
+
+    if (!isfinite(result.confidenceIntervalLow) ||
+        !isfinite(result.confidenceIntervalHigh))
+    {
+
+        result.confidenceIntervalLow  = result.systolic - 2.0f;
+        result.confidenceIntervalHigh = result.systolic + 2.0f;
+    }
+
     // --- 7. Enforce minimum ±2 mmHg CI ---
-    float halfWidth = (result.confidenceIntervalHigh - result.confidenceIntervalLow) / 2.0f;
+    float halfWidth =
+        (result.confidenceIntervalHigh - result.confidenceIntervalLow) / 2.0f;
+
     if (halfWidth < 2.0f)
     {
-        result.confidenceIntervalLow = result.systolic - 2.0f;
+        result.confidenceIntervalLow  = result.systolic - 2.0f;
         result.confidenceIntervalHigh = result.systolic + 2.0f;
     }
 
     return result;
-} 
+}

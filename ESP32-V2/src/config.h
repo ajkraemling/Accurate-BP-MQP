@@ -22,7 +22,7 @@
 // BP Measurement Thresholds
 #define BP_START_PRESSURE 140
 #define BP_MIN_IDLE_PRESSURE 30
-#define PRESSURE_DROP_THRESHOLD 10
+#define PRESSURE_DROP_THRESHOLD 15
 
 // Heartbeat intervals
 #define MIN_BEAT_INTERVALS_MS 300 // 200 bpm
@@ -32,7 +32,7 @@
 #define HPA_TO_MMHG 0.75006157584566
 
 // Ensemble Reporting
-#define MAX_DETECTIONS 50
-#define MAX_DETECTORS 2000
+#define MAX_DETECTIONS 20
+#define MAX_DETECTORS 150
 
 #endif

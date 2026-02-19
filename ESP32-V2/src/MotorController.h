@@ -35,10 +35,10 @@ public:
     MotorController();
     void begin();
 
-    void startInflation(int speed = MOTOR_SPEED_MEDIUM);
+    void startInflation(int speed = 255);
     void stopInflation();
 
-    void startDeflation(int rate = DEFLATE_RATE_MEDIUM);
+    void startDeflation(int rate = 80);
     void stopDeflation();
 
     void emergencyStop();

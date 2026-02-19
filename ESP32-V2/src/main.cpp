@@ -17,7 +17,7 @@
 
 // Declare objects 
 
-PressureSensor pressureSensor;
+PressureSensor pressureSensor; 
 PPGSensor ppgSensor(PPG_PIN);
 
 Display lcd;
@@ -159,8 +159,9 @@ void loop()
             }
         }
 
+        Serial.println("Trying to get result");
         BPResult result = bpMonitor.getEnsembleResult();
-
+        Serial.println("Got result");
         // Print Ensemble Result
         Serial.print("Ensemble,0,");
         Serial.print(result.systolic, 0);
