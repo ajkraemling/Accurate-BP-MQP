@@ -233,7 +233,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
         }
 
         // Controlled deflation - faster after 80 mmHg
-        if (ppgSignal > 100 || pressure < 80) {
+        if (ppgSignal > 300 || pressure < 60) {
             motor->openFastSolenoid();
         }
 
