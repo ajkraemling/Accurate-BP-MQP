@@ -11,6 +11,7 @@ enum BPState
     IDLE,
     INFLATING,
     MEASURING,
+    REINFLATION,
     COMPLETE
 };
 

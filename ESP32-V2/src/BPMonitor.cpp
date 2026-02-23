@@ -227,6 +227,14 @@ void BPMonitor::update(const BPMeasurement& measurement)
         for (int i = 0; i < detectorCount; i++)
         {
             detectors[i]->detect(ppgSignal, pressure, currentTime, recentBeat);
+            // On first detection only
+            if (detectors[i]->getDetectionCount() == 1) {
+                lastBeatDetectedPressure = pressure;
+                // Inflate slower for reinflation
+                motor->stopDeflation();
+                motor->startInflation(125);
+                state = REINFLATION;
+            }
         }
 
         // Controlled deflation - faster after 80 mmHg
@@ -237,12 +245,22 @@ void BPMonitor::update(const BPMeasurement& measurement)
         if (pressure < BP_MIN_IDLE_PRESSURE)
         {
             state = COMPLETE;
-
         }
 
         break;
     }
 
+    case REINFLATION:
+    {
+        // Set new lastBeatDetectedPressure
+        if (ppgSignal > 15) lastBeatDetectedPressure = pressure;
+
+        if ((pressure - lastBeatDetectedPressure) > 20) {
+            startTime = currentTime;
+            motor->startDeflation(0);
+            state = MEASURING;
+        }
+    }
 
     case COMPLETE:
     {

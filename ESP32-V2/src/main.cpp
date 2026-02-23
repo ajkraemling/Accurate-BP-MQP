@@ -61,9 +61,9 @@ void setup()
     // Motor set up
     bpMonitor.getMotorController()->begin();
 
-    int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80};
-    float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
-    int holds[] = {10};
+    int windows[] = {150};
+    float thresholds[] = {2.2};
+    int holds[] = {20};
 
     for (int w : windows) {
         for (float t : thresholds) {
