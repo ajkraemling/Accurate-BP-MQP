@@ -209,7 +209,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
     ){
             state = MEASURING;
             startTime = currentTime;
-            motor->startDeflation();  // Just call it once, no while loop
+            motor->startDeflation(55);  // Just call it once, no while loop
         }
         break;
     }
