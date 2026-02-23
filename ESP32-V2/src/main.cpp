@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
-
+ 
 #include "config.h"
 #include "sensors.h"
 #include "display.h"

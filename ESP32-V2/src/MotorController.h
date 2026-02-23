@@ -45,6 +45,11 @@ public:
 
     bool isInflating() const { return inflating; }
     bool isDeflating() const { return deflating; }
+    
+    void openSlowSolenoid();
+    void openFastSolenoid();
+    void closeSlowSolenoid();
+    void closeFastSolenoid();
 
 private:
     bool inflating;
@@ -54,7 +59,6 @@ private:
 
     void setMotorSpeed(int speed);
     void setMotorDirection(bool forward);
-    void setSolenoidOpening(int opening);
 };
 
 #endif
