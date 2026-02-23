@@ -50,6 +50,7 @@ void MotorController::startDeflation(int rate) {
 void MotorController::stopDeflation() {
     // if (!deflating) return;
     closeSlowSolenoid();
+    closeFastSolenoid();
     // deflating = false;
 }
 

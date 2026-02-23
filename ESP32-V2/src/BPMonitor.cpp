@@ -4,7 +4,6 @@
 #include <cmath>
 #include <iostream>
 #include <algorithm>
-#include <Arduino.h>
 
 BPMonitor::BPMonitor()
     : state(IDLE), systolic(0), maxPressure(0), startTime(0),
@@ -187,8 +186,6 @@ void BPMonitor::update(const BPMeasurement& measurement)
         if (pressure > BP_MIN_IDLE_PRESSURE || startInflating)
         {
             state = INFLATING;
-            Serial.print("state = ");
-            Serial.println(state);
             mapDetector->reset();
             hrCalculated = false;
             baselineBeatCount = 0;
@@ -355,8 +352,6 @@ float BPMonitor::getBaselineBPM() const
 
 BPResult BPMonitor::getEnsembleResult() const
 {
-    Serial.println("[ENS] getEnsembleResult() entered");
-
     struct DetectorReading {
         float pressure;
         float weight;
