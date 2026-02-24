@@ -1,26 +1,28 @@
-#ifndef DISPLAY_H
-#define DISPLAY_H
+#pragma once
+#include <TFT_eSPI.h>
+#include <SPI.h>
 
-#include <Wire.h>
-#include <hd44780.h>
-#include <hd44780ioClass/hd44780_I2Cexp.h>
-#include "DisplayPresenter.h"
-#include "config.h"
-
-// Hardware adapter - implements IDisplay interface
-class Display : public IDisplay
-{
-private:
-    hd44780_I2Cexp lcd;
-
+class Display {
 public:
     Display();
-    bool begin();
-    
-    // IDisplay interface implementation
-    void showLines(const char* line1, const char* line2 = nullptr,
-                   const char* line3 = nullptr, const char* line4 = nullptr) override;
-    void clear() override;
-};
 
-#endif
+    bool begin();
+    void drawMainPage();
+    void updateValues(int systolic, int diastolic);
+
+private:
+    TFT_eSPI tft;
+
+    const int SCREEN_WIDTH = 320;
+    const int SCREEN_HEIGHT = 240;
+
+    const uint16_t LIGHT_BLUE = 0x5D1F;
+
+    const int boxWidth = 280;
+    const int boxHeight = 70;
+    const int boxSpacing = 15;
+
+    const int topBoxX = 20;
+    const int topBoxY = 70;
+    const int bottomBoxY = 155;
+};
