@@ -1,8 +1,9 @@
 #pragma once
 #include <TFT_eSPI.h>
 #include <SPI.h>
+#include "DisplayPresenter.h"
 
-class Display {
+class Display : public IDisplay {
 public:
     Display();
 
@@ -10,19 +11,21 @@ public:
     void drawMainPage();
     void updateValues(int systolic, int diastolic);
 
+    // IDisplay interface
+    void showLines(const char* line1, const char* line2 = nullptr,
+                   const char* line3 = nullptr, const char* line4 = nullptr) override;
+    void clear() override;
+
 private:
     TFT_eSPI tft;
 
-    const int SCREEN_WIDTH = 320;
-    const int SCREEN_HEIGHT = 240;
-
-    const uint16_t LIGHT_BLUE = 0x5D1F;
-
-    const int boxWidth = 280;
-    const int boxHeight = 70;
-    const int boxSpacing = 15;
-
-    const int topBoxX = 20;
-    const int topBoxY = 70;
-    const int bottomBoxY = 155;
+    static constexpr int SCREEN_WIDTH  = 320;
+    static constexpr int SCREEN_HEIGHT = 240;
+    static constexpr uint16_t LIGHT_BLUE = 0x5D1F;
+    static constexpr int boxWidth    = 280;
+    static constexpr int boxHeight   = 70;
+    static constexpr int boxSpacing  = 15;
+    static constexpr int topBoxX     = 20;
+    static constexpr int topBoxY     = 70;
+    static constexpr int bottomBoxY  = 155;
 };

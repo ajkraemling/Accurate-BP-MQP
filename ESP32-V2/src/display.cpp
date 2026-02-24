@@ -63,3 +63,20 @@ void Display::updateValues(int systolic, int diastolic) {
     tft.setCursor(topBoxX + 140, bottomBoxY + valueY);
     tft.print(diastolic);
 }
+
+void Display::clear() {
+    tft.fillScreen(TFT_BLACK);
+}
+
+void Display::showLines(const char* line1, const char* line2,
+                        const char* line3, const char* line4) {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setFreeFont(&FreeSansBold9pt7b);
+
+    int y = 40;
+    if (line1) { tft.setCursor(10, y); tft.print(line1); y += 50; }
+    if (line2) { tft.setCursor(10, y); tft.print(line2); y += 50; }
+    if (line3) { tft.setCursor(10, y); tft.print(line3); y += 50; }
+    if (line4) { tft.setCursor(10, y); tft.print(line4); }
+}
