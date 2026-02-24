@@ -15,6 +15,8 @@ public:
     void showLines(const char* line1, const char* line2 = nullptr,
                    const char* line3 = nullptr, const char* line4 = nullptr) override;
     void clear() override;
+    
+    void testWhite();
 
 private:
     TFT_eSPI tft;

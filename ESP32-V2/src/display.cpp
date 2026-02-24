@@ -80,3 +80,7 @@ void Display::showLines(const char* line1, const char* line2,
     if (line3) { tft.setCursor(10, y); tft.print(line3); y += 50; }
     if (line4) { tft.setCursor(10, y); tft.print(line4); }
 }
+
+void Display::testWhite() {
+    tft.fillScreen(TFT_WHITE);
+}
