@@ -28,14 +28,12 @@ void Display::drawMainPage() {
     tft.setCursor((SCREEN_WIDTH - titleWidth) / 2, 30);
     tft.println(title);
 
-    // Draw boxes
     tft.fillRect(topBoxX, topBoxY, boxWidth, boxHeight, TFT_WHITE);
     tft.drawRect(topBoxX, topBoxY, boxWidth, boxHeight, TFT_BLACK);
 
     tft.fillRect(topBoxX, bottomBoxY, boxWidth, boxHeight, TFT_WHITE);
     tft.drawRect(topBoxX, bottomBoxY, boxWidth, boxHeight, TFT_BLACK);
 
-    // Labels
     tft.setTextColor(TFT_BLACK, TFT_WHITE);
     tft.setFreeFont(&FreeSansBold9pt7b);
 
