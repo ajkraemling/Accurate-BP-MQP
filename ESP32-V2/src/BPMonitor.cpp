@@ -27,11 +27,11 @@ void BPMonitor::addDetector(SystolicDetector *detector)
     }
 }
 
-void BPMonitor::setFilter(PPGBandpassFilter* filter) { externalFilter = filter; }
+void BPMonitor::setFilter(PPGBandpassFilter *filter) { externalFilter = filter; }
 
-void BPMonitor::setMotorController(MotorController* motorController) { motor = motorController; }
+void BPMonitor::setMotorController(MotorController *motorController) { motor = motorController; }
 
-void BPMonitor::setMAPDetector(MAPDetector* detector) { mapDetector = detector; }
+void BPMonitor::setMAPDetector(MAPDetector *detector) { mapDetector = detector; }
 
 void BPMonitor::reset()
 {
@@ -49,7 +49,7 @@ void BPMonitor::reset()
     startInflating = false;
     memset(baselineBeats, 0, sizeof(baselineBeats));
     memset(pressureHistory, 0, sizeof(pressureHistory));
-    
+
     mapDetector->reset();
 
     for (int i = 0; i < detectorCount; i++)
@@ -59,8 +59,8 @@ void BPMonitor::reset()
 }
 
 float BPMonitor::getMAP() { return mapDetector->getMAP(); }
-MotorController* BPMonitor::getMotorController() { return motor; }
-MAPDetector* BPMonitor::getMAPDetector() { return mapDetector; }
+MotorController *BPMonitor::getMotorController() { return motor; }
+MAPDetector *BPMonitor::getMAPDetector() { return mapDetector; }
 
 bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long timestamp)
 {
@@ -71,22 +71,22 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
     {
         pressureHistoryCount++;
     }
-    
+
     if (pressureHistoryCount < PRESSURE_HISTORY_SIZE)
     {
         return false;
     }
-    
+
     // Get indices
     int currentIdx = (pressureHistoryIdx - 1 + PRESSURE_HISTORY_SIZE) % PRESSURE_HISTORY_SIZE;
     int prevIdx = (currentIdx - 1 + PRESSURE_HISTORY_SIZE) % PRESSURE_HISTORY_SIZE;
     int prevPrevIdx = (prevIdx - 1 + PRESSURE_HISTORY_SIZE) % PRESSURE_HISTORY_SIZE;
-    
+
     float prev = pressureHistory[prevIdx];
     float prevPrev = pressureHistory[prevPrevIdx];
-    
+
     bool isPeak = (prev > prevPrev) && (prev > currentPressure);
-    
+
     if (isPeak)
     {
         // CRITICAL FIX: Check interval from LAST DETECTED PEAK, not last accepted beat
@@ -94,15 +94,15 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
         {
             // First beat - always accept
             baselineBeats[baselineBeatCount++] = timestamp;
-            lastPeakTime = timestamp;  // Track this separately
+            lastPeakTime = timestamp; // Track this separately
             return true;
         }
         else
         {
             // Measure from the LAST PEAK (accepted or not)
             unsigned long interval = timestamp - lastPeakTime;
-            lastPeakTime = timestamp;  // Update for next comparison
-            
+            lastPeakTime = timestamp; // Update for next comparison
+
             if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)
             {
                 if (baselineBeatCount < MAX_BASELINE_BEATS)
@@ -113,21 +113,21 @@ bool BPMonitor::detectPressureOscillation(float currentPressure, unsigned long t
             }
         }
     }
-    
+
     return false;
 }
 
 void BPMonitor::calculateBaselineHeartRate(unsigned long currentTime)
 {
-    
+
     // Calculate average interval, skipping invalid ones
     unsigned long totalInterval = 0;
     int validIntervalCount = 0;
-    
+
     for (int i = 1; i < baselineBeatCount; i++)
     {
-        unsigned long interval = baselineBeats[i] - baselineBeats[i-1];
-        
+        unsigned long interval = baselineBeats[i] - baselineBeats[i - 1];
+
         // Skip obviously wrong intervals
         if (interval >= MIN_BEAT_INTERVALS_MS && interval <= MAX_BEAT_INTERVALS_MS)
         {
@@ -135,49 +135,51 @@ void BPMonitor::calculateBaselineHeartRate(unsigned long currentTime)
             validIntervalCount++;
         }
     }
-    
+
     // Need at least one valid interval to calculate
     if (validIntervalCount == 0)
     {
         return; // Can't calculate baseline with no valid intervals
     }
-    
+
     float avgInterval = (float)totalInterval / validIntervalCount;
     float avgBPM = 60000.0f / avgInterval;
-    
+
     // Account for delay
     const float DELAY_MS = 75.0f;
-    
+
     // Set range for all detectors (+/-40 BPM tolerance)
     baselineHR.setFromBPM(avgBPM, 40.0f);
-    
+
     // Adjust minimum interval to account for delay
     // (pressure peak happens first, PPG follows ~75ms later)
-    if (baselineHR.minInterval > DELAY_MS) 
+    if (baselineHR.minInterval > DELAY_MS)
         baselineHR.minInterval -= (unsigned long)DELAY_MS;
-    
+
     for (int i = 0; i < detectorCount; i++)
     {
         detectors[i]->setHeartRateRange(baselineHR);
     }
-    
+
     // Configure external filter
-    if (externalFilter != nullptr && (currentTime - lastBPMMeasurement) > 4000) {
+    if (externalFilter != nullptr && (currentTime - lastBPMMeasurement) > 4000)
+    {
         lastBPMMeasurement = currentTime;
         externalFilter->setHeartRateRange(avgBPM, 40.0f);
     }
-    
+
     hrCalculated = true;
 }
 
-void BPMonitor::update(const BPMeasurement& measurement)
+void BPMonitor::update(const BPMeasurement &measurement)
 {
     float pressure = measurement.pressure;
     int ppgSignal = measurement.ppgSignal;
     unsigned long currentTime = measurement.timestamp;
-    
+
     // Track max pressure
-    if (pressure > maxPressure) maxPressure = pressure;
+    if (pressure > maxPressure)
+        maxPressure = pressure;
 
     switch (state)
     {
@@ -190,23 +192,26 @@ void BPMonitor::update(const BPMeasurement& measurement)
             hrCalculated = false;
             baselineBeatCount = 0;
             maxPressure = pressure;
-            motor->startInflation(255); 
+            motor->startInflation(255);
         }
         break;
     }
 
     case INFLATING:
-    { 
+    {
         // Use a simple beat detection algorithm to detect when last beat was detected
-        if (ppgSignal > 100) lastBeatDetectedPressure = pressure;
+        if (ppgSignal > 100)
+            lastBeatDetectedPressure = pressure;
 
         if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD) // For omron, if we notice a pressure drop start measuring
-            || pressure > 180 // For our motor, based on highest pressure it should go
-            || (pressure - lastBeatDetectedPressure) > 35 // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
-    ){
+            || pressure > 180                                  // For our motor, based on highest pressure it should go
+            || (pressure - lastBeatDetectedPressure) > 35      // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
+        )
+        {
             state = MEASURING;
             startTime = currentTime;
-            motor->startDeflation(55);  // Just call it once, no while loop
+            motor->startDeflation(55); // Just call it once, no while loop
+            // motor->stopInflation();
         }
         break;
     }
@@ -223,26 +228,25 @@ void BPMonitor::update(const BPMeasurement& measurement)
 
         mapDetector->addSample(pressure, currentTime);
 
-        unsigned long recentBeat = baselineBeats[baselineBeatCount-1];
+        unsigned long recentBeat = baselineBeats[baselineBeatCount - 1];
         for (int i = 0; i < detectorCount; i++)
         {
             detectors[i]->detect(ppgSignal, pressure, currentTime, recentBeat);
         }
 
         // Controlled deflation - faster after 80 mmHg
-        if (ppgSignal > 300 || pressure < 60) {
+        if (pressure < 80 || pressure < maxPressure/1.7 )
+        {
             motor->openFastSolenoid();
         }
 
         if (pressure < BP_MIN_IDLE_PRESSURE)
         {
             state = COMPLETE;
-
         }
 
         break;
     }
-
 
     case COMPLETE:
     {
@@ -259,7 +263,7 @@ BPStatus BPMonitor::getStatus() const
     status.state = state;
     status.currentPressure = maxPressure;
     status.maxPressure = maxPressure;
-    
+
     switch (state)
     {
     case IDLE:
@@ -279,7 +283,7 @@ BPStatus BPMonitor::getStatus() const
         status.detailMessage = "Complete";
         break;
     }
-    
+
     return status;
 }
 
@@ -287,7 +291,7 @@ float BPMonitor::getSystolic() const { return systolic; }
 BPState BPMonitor::getState() const { return state; }
 int BPMonitor::getDetectorCount() const { return detectorCount; }
 
-SystolicDetector* BPMonitor::getDetector(int index) const
+SystolicDetector *BPMonitor::getDetector(int index) const
 {
     if (index >= 0 && index < detectorCount)
     {
@@ -297,62 +301,65 @@ SystolicDetector* BPMonitor::getDetector(int index) const
 }
 
 // Get best reading based on confidence across all detectors
-float BPMonitor::getBestSystolic(float* outConfidence) const
+float BPMonitor::getBestSystolic(float *outConfidence) const
 {
     DetectionRecord bestOverall;
     bestOverall.pressure = 0;
     bestOverall.confidence = 0;
-    
+
     for (int i = 0; i < detectorCount; i++)
     {
         DetectionRecord best = detectors[i]->getBestDetection();
-        
+
         if (best.confidence > bestOverall.confidence)
         {
             bestOverall = best;
         }
     }
-    
+
     if (outConfidence)
     {
         *outConfidence = bestOverall.confidence;
     }
-    
+
     return bestOverall.pressure;
 }
 
 HeartRateRange BPMonitor::getBaselineHeartRate() const { return baselineHR; }
 
-const unsigned long* BPMonitor::getBaselineBeats(int& outCount) const
+const unsigned long *BPMonitor::getBaselineBeats(int &outCount) const
 {
     outCount = baselineBeatCount;
     return baselineBeats;
 }
 
-void BPMonitor::startInflation() {startInflating = true;};
+void BPMonitor::startInflation() { startInflating = true; };
 
-void BPMonitor::holdPressure() {
+void BPMonitor::holdPressure()
+{
     // Add hold pressure code here :)
     return;
 };
 
 float BPMonitor::getBaselineBPM() const
 {
-    if (!hrCalculated || baselineBeatCount < 2) return 0.0f;
-    
+    if (!hrCalculated || baselineBeatCount < 2)
+        return 0.0f;
+
     unsigned long totalInterval = 0;
     for (int i = 1; i < baselineBeatCount; i++)
     {
-        totalInterval += baselineBeats[i] - baselineBeats[i-1];
+        totalInterval += baselineBeats[i] - baselineBeats[i - 1];
     }
-    
+
     float avgInterval = (float)totalInterval / (baselineBeatCount - 1);
     return 60000.0f / avgInterval;
 }
 
 BPResult BPMonitor::getEnsembleResult() const
 {
-    struct DetectorReading {
+    struct DetectorReading
+    {
         float pressure;
         float weight;
     };
@@ -368,7 +375,6 @@ BPResult BPMonitor::getEnsembleResult() const
     result.agreementCount = 0;
     result.totalDetectors = detectorCount;
 
-
     if (detectorCount <= 0)
     {
         return result;
@@ -382,7 +388,7 @@ BPResult BPMonitor::getEnsembleResult() const
     {
         if (readingCount >= MAX_TOTAL_READINGS)
         {
-            
+
             break;
         }
 
@@ -398,9 +404,7 @@ BPResult BPMonitor::getEnsembleResult() const
         int actualCount = detectors[i]->softmaxNormalize(
             top,
             MAX_READINGS_PER_DETECTOR,
-            0.1f
-        );
-
+            0.1f);
 
         for (int j = 0; j < actualCount; j++)
         {
@@ -430,8 +434,6 @@ BPResult BPMonitor::getEnsembleResult() const
         }
     }
 
-
-
     if (readingCount <= 0)
     {
 
@@ -452,7 +454,6 @@ BPResult BPMonitor::getEnsembleResult() const
         for (int j = startIdx; j < endIdx; j++)
             detectorWeightSum += readings[j].weight;
 
-
         if (detectorWeightSum > 0.000001f)
         {
             for (int j = startIdx; j < endIdx; j++)
@@ -469,7 +470,6 @@ BPResult BPMonitor::getEnsembleResult() const
         weightedSum += readings[i].pressure * readings[i].weight;
         totalWeight += readings[i].weight;
     }
-
 
     if (totalWeight <= 0.000001f)
     {
@@ -502,8 +502,6 @@ BPResult BPMonitor::getEnsembleResult() const
     if (!isfinite(weightedStdDev))
         weightedStdDev = 0.0f;
 
-
-
     // --- 5. Agreement within ±1 std dev ---
     int agreementCount = 0;
     float agreementWeightSum = 0.0f;
@@ -533,7 +531,6 @@ BPResult BPMonitor::getEnsembleResult() const
 
     result.confidence = agreementRatio * avgAgreementWeight * sampleSizeFactor;
 
-
     if (!isfinite(result.confidence) || result.confidence < 0.0f)
         result.confidence = 0.0f;
 
@@ -549,16 +546,14 @@ BPResult BPMonitor::getEnsembleResult() const
 
     float ciMultiplier = 1.96f * (2.0f - result.confidence);
 
-    result.confidenceIntervalLow  = result.systolic - (ciMultiplier * standardError);
+    result.confidenceIntervalLow = result.systolic - (ciMultiplier * standardError);
     result.confidenceIntervalHigh = result.systolic + (ciMultiplier * standardError);
-
-
 
     if (!isfinite(result.confidenceIntervalLow) ||
         !isfinite(result.confidenceIntervalHigh))
     {
 
-        result.confidenceIntervalLow  = result.systolic - 2.0f;
+        result.confidenceIntervalLow = result.systolic - 2.0f;
         result.confidenceIntervalHigh = result.systolic + 2.0f;
     }
 
@@ -568,7 +563,7 @@ BPResult BPMonitor::getEnsembleResult() const
 
     if (halfWidth < 2.0f)
     {
-        result.confidenceIntervalLow  = result.systolic - 2.0f;
+        result.confidenceIntervalLow = result.systolic - 2.0f;
         result.confidenceIntervalHigh = result.systolic + 2.0f;
     }
 

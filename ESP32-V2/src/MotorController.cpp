@@ -73,15 +73,15 @@ void MotorController::setMotorDirection(bool forward) {
 
 void MotorController::openSlowSolenoid() {
     // Partially/fully OPEN - reduce power to let valve open proportionally
-    digitalWrite(SOLENOID_IN3_PIN, HIGH);
+    digitalWrite(SOLENOID_IN3_PIN, LOW);
     digitalWrite(SOLENOID_IN4_PIN, LOW);
     ledcWrite(SOLENOID_PWM_CHANNEL, 0);
 }
 
 void MotorController::closeSlowSolenoid() {
     // Partially/fully OPEN - reduce power to let valve open proportionally
-    digitalWrite(SOLENOID_IN3_PIN, LOW);
-    digitalWrite(SOLENOID_IN4_PIN, HIGH);
+    digitalWrite(SOLENOID_IN3_PIN, HIGH);
+    digitalWrite(SOLENOID_IN4_PIN, LOW);
     ledcWrite(SOLENOID_PWM_CHANNEL, 255);
 }
 
