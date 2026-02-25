@@ -4,12 +4,11 @@ Display::Display() : tft() {}
 
 bool Display::begin() {
     pinMode(27, OUTPUT);
-    digitalWrite(27, HIGH);   // Backlight ON
+    digitalWrite(27, HIGH);
 
     tft.init();
     tft.setRotation(1);
 
-    // Fix color orientation if needed
     tft.writecommand(0x36);
     tft.writedata(0xA0);
 
@@ -21,10 +20,11 @@ void Display::drawMainPage() {
     tft.fillScreen(LIGHT_BLUE);
 
     tft.setTextColor(TFT_BLACK, LIGHT_BLUE);
-    tft.setFreeFont(&FreeSansBold12pt7b);
+    tft.setTextFont(2);
+    tft.setTextSize(2);
 
     String title = "Blood Pressure Monitor";
-    int16_t titleWidth = tft.textWidth(title);
+    int16_t titleWidth = tft.textWidth(title, 2);
     tft.setCursor((SCREEN_WIDTH - titleWidth) / 2, 30);
     tft.println(title);
 
@@ -35,7 +35,8 @@ void Display::drawMainPage() {
     tft.drawRect(topBoxX, bottomBoxY, boxWidth, boxHeight, TFT_BLACK);
 
     tft.setTextColor(TFT_BLACK, TFT_WHITE);
-    tft.setFreeFont(&FreeSansBold9pt7b);
+    tft.setTextFont(2);
+    tft.setTextSize(1);
 
     int labelY = (boxHeight / 2) + 5;
 
@@ -47,13 +48,12 @@ void Display::drawMainPage() {
 }
 
 void Display::updateValues(int systolic, int diastolic) {
-
-    // Clear value areas only (fast refresh)
     tft.fillRect(topBoxX + 130, topBoxY + 1, 150, boxHeight - 2, TFT_WHITE);
     tft.fillRect(topBoxX + 130, bottomBoxY + 1, 150, boxHeight - 2, TFT_WHITE);
 
     tft.setTextColor(TFT_BLACK, TFT_WHITE);
-    tft.setFreeFont(&FreeSansBold18pt7b);
+    tft.setTextFont(4);
+    tft.setTextSize(1);
 
     int valueY = (boxHeight / 2) + 10;
 
@@ -72,7 +72,8 @@ void Display::showLines(const char* line1, const char* line2,
                         const char* line3, const char* line4) {
     tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setFreeFont(&FreeSansBold9pt7b);
+    tft.setTextFont(2);
+    tft.setTextSize(1);
 
     int y = 40;
     if (line1) { tft.setCursor(10, y); tft.print(line1); y += 50; }
