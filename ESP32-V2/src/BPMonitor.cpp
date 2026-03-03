@@ -190,7 +190,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
             hrCalculated = false;
             baselineBeatCount = 0;
             maxPressure = pressure;
-            motor->startInflation(255); 
+            motor->startInflation(); 
         }
         break;
     }
@@ -202,11 +202,11 @@ void BPMonitor::update(const BPMeasurement& measurement)
 
         if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD) // For omron, if we notice a pressure drop start measuring
             || pressure > 180 // For our motor, based on highest pressure it should go
-            || (pressure - lastBeatDetectedPressure) > 35 // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
+            || (pressure - lastBeatDetectedPressure) > 180 // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
     ){
             state = MEASURING;
             startTime = currentTime;
-            motor->startDeflation(55);  // Just call it once, no while loop
+            motor->startDeflation();
         }
         break;
     }

@@ -1,131 +1,88 @@
 #include "MotorController.h"
 
 MotorController::MotorController()
-: inflating(false), deflating(false), motorSpeed(0), valveOpening(0) {}
+: inflating(false), deflating(false) {}
+
 #ifdef ARDUINO
 void MotorController::begin() {
-
-    pinMode(2, OUTPUT);
     pinMode(MOTOR_IN1_PIN, OUTPUT);
     pinMode(MOTOR_IN2_PIN, OUTPUT);
-    pinMode(SOLENOID_IN3_PIN, OUTPUT);
-    pinMode(SOLENOID_IN4_PIN, OUTPUT);
+    pinMode(SLOW_SOLENOID_IN3_PIN, OUTPUT);
+    pinMode(SLOW_SOLENOID_IN4_PIN, OUTPUT);
+    pinMode(FAST_SOLENOID_CONTROL, OUTPUT);
 
-    ledcSetup(MOTOR_PWM_CHANNEL, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
-    ledcAttachPin(MOTOR_ENA_PIN, MOTOR_PWM_CHANNEL);
-
-    ledcSetup(SOLENOID_PWM_CHANNEL, SOLENOID_PWM_FREQ, SOLENOID_PWM_RES);
-    ledcAttachPin(SOLENOID_ENB_PIN, SOLENOID_PWM_CHANNEL);
-
-    emergencyStop();
-} 
-
-void MotorController::startInflation(int speed) {
-    // if (inflating) return;
-
+    stopInflation();
     stopDeflation();
-    setMotorDirection(true);
-    setMotorSpeed(speed);
-    closeSlowSolenoid();
-    closeFastSolenoid();
+}
 
-    // inflating = true;
+void MotorController::startInflation() {
+    stopDeflation();
+    digitalWrite(MOTOR_IN1_PIN, HIGH);
+    digitalWrite(MOTOR_IN2_PIN, LOW);
+
+    inflating = true;
 }
 
 void MotorController::stopInflation() {
-    // if (!inflating) return;
-    setMotorSpeed(0);
-    // inflating = false;
+    digitalWrite(MOTOR_IN1_PIN, LOW);
+    digitalWrite(MOTOR_IN2_PIN, LOW);
+    inflating = false;
 }
 
-void MotorController::startDeflation(int rate) {
-    // if (deflating) return;
-
+void MotorController::startDeflation() {
     stopInflation();
-    // Cap rate so valve never fully de-energizes and dumps too fast
-    // Tune this max value - lower = slower deflation
     openSlowSolenoid();
+
+    deflating = true;
 }
 
 void MotorController::stopDeflation() {
-    // if (!deflating) return;
     closeSlowSolenoid();
     closeFastSolenoid();
-    // deflating = false;
+    deflating = false;
 }
 
 void MotorController::emergencyStop() {
-    setMotorSpeed(0);
+    stopInflation();
     openSlowSolenoid();
-    // inflating = false;
-    // deflating = false;
-}
+    openFastSolenoid();
 
-void MotorController::setMotorSpeed(int speed) {
-    motorSpeed = constrain(speed, 0, 255);
-    ledcWrite(MOTOR_PWM_CHANNEL, motorSpeed);
-}
-
-void MotorController::setMotorDirection(bool forward) {
-    digitalWrite(MOTOR_IN1_PIN, forward ? HIGH : LOW);
-    digitalWrite(MOTOR_IN2_PIN, forward ? LOW : HIGH);
-}
-
-void MotorController::openSlowSolenoid() {
-    // Partially/fully OPEN - reduce power to let valve open proportionally
-    digitalWrite(SOLENOID_IN3_PIN, HIGH);
-    digitalWrite(SOLENOID_IN4_PIN, LOW);
-    ledcWrite(SOLENOID_PWM_CHANNEL, 0);
+    inflating = false;
+    deflating = true;
 }
 
 void MotorController::closeSlowSolenoid() {
-    // Partially/fully OPEN - reduce power to let valve open proportionally
-    digitalWrite(SOLENOID_IN3_PIN, LOW);
-    digitalWrite(SOLENOID_IN4_PIN, HIGH);
-    ledcWrite(SOLENOID_PWM_CHANNEL, 255);
+    // Its a default open solenoid
+    digitalWrite(SLOW_SOLENOID_IN3_PIN, HIGH);
+    digitalWrite(SLOW_SOLENOID_IN4_PIN, LOW);
+}
+
+void MotorController::openSlowSolenoid() {
+    digitalWrite(SLOW_SOLENOID_IN3_PIN, LOW);
+    digitalWrite(SLOW_SOLENOID_IN4_PIN, LOW);
 }
 
 void MotorController::openFastSolenoid() {
-    digitalWrite(2, 0);
+    // Needs to go through a transistor still
+    digitalWrite(FAST_SOLENOID_CONTROL, LOW);
 }
 
 void MotorController::closeFastSolenoid() {
-    digitalWrite(2, 1);
+    // Needs to go through a transistor still
+    digitalWrite(FAST_SOLENOID_CONTROL, HIGH);
 }
+
 #else
-void MotorController::begin() {
-    // Empty
-}
-
-void MotorController::startInflation(int speed) {
-    // Empty
-}
-
-void MotorController::stopInflation() {
-    // Empty
-}
-
-void MotorController::startDeflation(int rate) {
-    // Empty
-}
-
-void MotorController::stopDeflation() {
-    // Empty
-}
-
-void MotorController::emergencyStop() {
-    // Empty
-}
-
-void MotorController::setMotorSpeed(int speed) {
-    // Empty
-}
-
-void MotorController::setMotorDirection(bool forward) {
-    // Empty
-}
-
-void MotorController::setSolenoidOpening(int opening) {
-    // Empty
-}
+void MotorController::begin() {}
+void MotorController::startInflation() {}
+void MotorController::stopInflation() {}
+void MotorController::startDeflation() {}
+void MotorController::stopDeflation() {}
+void MotorController::emergencyStop() {}
+void MotorController::setMotor(bool on) {}
+void MotorController::setMotorDirection(bool forward) {}
+void MotorController::closeSlowSolenoid() {}
+void MotorController::openSlowSolenoid() {}
+void MotorController::openFastSolenoid() {}
+void MotorController::closeFastSolenoid() {}
 #endif

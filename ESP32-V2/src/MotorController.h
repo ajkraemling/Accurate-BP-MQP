@@ -7,12 +7,12 @@
 // Pump (Motor A)
 #define MOTOR_IN1_PIN    25
 #define MOTOR_IN2_PIN    26
-#define MOTOR_ENA_PIN    27
 
-// Valve (Motor B)
-#define SOLENOID_IN3_PIN 14
-#define SOLENOID_IN4_PIN 32
-#define SOLENOID_ENB_PIN 33
+// Valves
+#define SLOW_SOLENOID_IN3_PIN 14
+#define SLOW_SOLENOID_IN4_PIN 32
+
+#define FAST_SOLENOID_CONTROL 2
 
 // Button
 #define BUTTON_PIN 13
@@ -35,10 +35,10 @@ public:
     MotorController();
     void begin();
 
-    void startInflation(int speed = 255);
+    void startInflation();
     void stopInflation();
 
-    void startDeflation(int rate);
+    void startDeflation();
     void stopDeflation();
 
     void emergencyStop();
@@ -54,11 +54,9 @@ public:
 private:
     bool inflating;
     bool deflating;
-    int motorSpeed;
-    int valveOpening;
 
-    void setMotorSpeed(int speed);
-    void setMotorDirection(bool forward);
+    void setMotorSpeed();
+    void setMotorDirection();
 };
 
 #endif

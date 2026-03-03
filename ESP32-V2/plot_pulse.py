@@ -18,7 +18,8 @@ print("Starting Blood Pressure Monitor...")
 # SERIAL SETUP
 # ============================================================================
 
-PORT = "/dev/cu.usbserial-0001"
+# PORT = "/dev/cu.usbserial-0001"
+PORT = "COM5"
 BAUD = 115200
 
 try:
