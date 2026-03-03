@@ -215,7 +215,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
     {
         if (detectPressureOscillation(pressure, currentTime))
         {
-            if (baselineBeatCount >= 2)
+            if (baselineBeatCount >= 2) 
             {
                 calculateBaselineHeartRate(currentTime);
             }

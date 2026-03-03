@@ -9,10 +9,8 @@
 #define MOTOR_IN2_PIN    26
 
 // Valves
-#define SLOW_SOLENOID_IN3_PIN 14
-#define SLOW_SOLENOID_IN4_PIN 32
-
-#define FAST_SOLENOID_CONTROL 2
+#define SOLENOID_IN3_PIN 14
+#define SOLENOID_IN4_PIN 32
 
 // Button
 #define BUTTON_PIN 13
@@ -46,17 +44,12 @@ public:
     bool isInflating() const { return inflating; }
     bool isDeflating() const { return deflating; }
     
-    void openSlowSolenoid();
-    void openFastSolenoid();
-    void closeSlowSolenoid();
-    void closeFastSolenoid();
+    void openSolenoid();
+    void closeSolenoid();
 
 private:
     bool inflating;
     bool deflating;
-
-    void setMotorSpeed();
-    void setMotorDirection();
 };
 
 #endif
