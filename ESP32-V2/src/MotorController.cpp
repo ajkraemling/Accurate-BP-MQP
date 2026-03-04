@@ -65,6 +65,6 @@ void MotorController::stopInflation() {}
 void MotorController::startDeflation() {}
 void MotorController::stopDeflation() {}
 void MotorController::emergencyStop() {}
-void MotorController::openFastSolenoid() {}
-void MotorController::closeFastSolenoid() {}
+void MotorController::openSolenoid() {}
+void MotorController::closeSolenoid() {}
 #endif

@@ -732,9 +732,9 @@ function createGroundTruthTab(parentTab, allRuns, allDetectors)
     meanAbsError = mean(absErrors, 2, 'omitnan');
     stdAbsError = std(absErrors, 0, 2, 'omitnan');
     
-    % Create axes - only 2 plots now
-    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
-    ax4 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
+    % Create axes
+    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.38, 0.32]);
+    ax4 = axes('Parent', parentTab, 'Position', [0.56, 0.63, 0.38, 0.32]);
     
     % Plot 1: Absolute error (top)
     axes(ax2);
