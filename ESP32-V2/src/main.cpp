@@ -61,26 +61,70 @@ void setup()
     // Motor set up
     bpMonitor.getMotorController()->begin();
 
-    int windows[] = {5, 10, 15, 20, 30, 40, 50, 60, 70, 80}; 
-    float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
-    int holds[] = {10};
+    bpMonitor.reset();
 
-    for (int w : windows) {
-        for (float t : thresholds) {
-            for (int h : holds) {
+
+    // Final detector decisions:
+    // TIER ONE (BEST PERFORMING DETECTORS, 80 detectors) 
+    int t1Windows[] = {60, 70, 80, 90, 100};
+    float t1Thresh[] = {1.8, 1.9, 2.0, 2.2};
+    int t1Dev[] = {5, 10, 12, 16};
+
+    for (int w : t1Windows) {
+        for (float t : t1Thresh) {
+            for (int d : t1Dev) {
                 Serial.print("Detector: ");
                 Serial.print(w);
                 Serial.print(" ");
                 Serial.print(t);
                 Serial.print(" ");
-                Serial.println(h);
+                Serial.println(d);
 
-                bpMonitor.addDetector(new BaselineDetector(w, t, h));
+                bpMonitor.addDetector(new BaselineDetector(w, t, d));
             }
         }
     }
 
-    bpMonitor.reset();
+    // TIER TWO (HIGH WINDOW DETECTORS, 40 detectors) 
+    int t2Windows[] = {110, 120, 130, 140, 150};
+    float t2Thresh[] = {2.0, 2.4, 2.8, 3.3};
+    int t2Dev[] = {12, 18};
+
+    for (int w : t2Windows) {
+        for (float t : t2Thresh) {
+            for (int d : t2Dev) {
+                Serial.print("Detector: ");
+                Serial.print(w);
+                Serial.print(" ");
+                Serial.print(t);
+                Serial.print(" ");
+                Serial.println(d);
+
+                bpMonitor.addDetector(new BaselineDetector(w, t, d));
+            }
+        }
+    }
+
+    // TIER THREE (LOW WINDOW DETECTORS, 24 detectors) 
+    int t3Windows[] = {20, 30, 40, 50};
+    float t3Thresh[] = {1.65, 1.8, 2.0};
+    int t3Dev[] = {12, 15};
+
+    for (int w : t3Windows) {
+        for (float t : t3Thresh) {
+            for (int d : t3Dev) {
+                Serial.print("Detector: ");
+                Serial.print(w);
+                Serial.print(" ");
+                Serial.print(t);
+                Serial.print(" ");
+                Serial.println(d);
+
+                bpMonitor.addDetector(new BaselineDetector(w, t, d));
+            }
+        }
+    }
+
 
     pinMode(13, INPUT_PULLUP);
 

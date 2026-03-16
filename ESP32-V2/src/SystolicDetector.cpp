@@ -247,7 +247,7 @@ int SystolicDetector::softmaxNormalize(DetectionRecord* output, int maxCount, fl
     float sumExp = 0.0f;
     for (int i = 0; i < count; i++)
     {
-        weights[i] = powf(detections[i].confidence / temperature, 2);
+        weights[i] = expf(detections[i].confidence / temperature);
         sumExp += weights[i];
     }
 

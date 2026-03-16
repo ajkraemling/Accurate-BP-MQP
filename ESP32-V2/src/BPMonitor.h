@@ -88,7 +88,7 @@ private:
 
 public:
     BPMonitor();
-    
+
     void addDetector(SystolicDetector *detector);
     void reset();
     void update(const BPMeasurement& measurement);

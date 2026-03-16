@@ -215,7 +215,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
     {
         if (detectPressureOscillation(pressure, currentTime))
         {
-            if (baselineBeatCount >= 2)
+            if (baselineBeatCount >= 2) 
             {
                 calculateBaselineHeartRate(currentTime);
             }
@@ -231,7 +231,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
 
         // Controlled deflation - faster after 80 mmHg
         if (ppgSignal > 300 || pressure < 60) {
-            motor->openFastSolenoid();
+            motor->openSolenoid();
         }
 
         if (pressure < BP_MIN_IDLE_PRESSURE)

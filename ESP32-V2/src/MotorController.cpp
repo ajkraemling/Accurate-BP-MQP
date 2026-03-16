@@ -7,9 +7,8 @@ MotorController::MotorController()
 void MotorController::begin() {
     pinMode(MOTOR_IN1_PIN, OUTPUT);
     pinMode(MOTOR_IN2_PIN, OUTPUT);
-    pinMode(SLOW_SOLENOID_IN3_PIN, OUTPUT);
-    pinMode(SLOW_SOLENOID_IN4_PIN, OUTPUT);
-    pinMode(FAST_SOLENOID_CONTROL, OUTPUT);
+    pinMode(SOLENOID_IN3_PIN, OUTPUT);
+    pinMode(SOLENOID_IN4_PIN, OUTPUT);
 
     stopInflation();
     stopDeflation();
@@ -31,45 +30,32 @@ void MotorController::stopInflation() {
 
 void MotorController::startDeflation() {
     stopInflation();
-    openSlowSolenoid();
 
     deflating = true;
 }
 
 void MotorController::stopDeflation() {
-    closeSlowSolenoid();
-    closeFastSolenoid();
+    closeSolenoid();
     deflating = false;
 }
 
 void MotorController::emergencyStop() {
     stopInflation();
-    openSlowSolenoid();
-    openFastSolenoid();
+    openSolenoid();
 
     inflating = false;
     deflating = true;
 }
 
-void MotorController::closeSlowSolenoid() {
+void MotorController::closeSolenoid() {
     // Its a default open solenoid
-    digitalWrite(SLOW_SOLENOID_IN3_PIN, HIGH);
-    digitalWrite(SLOW_SOLENOID_IN4_PIN, LOW);
+    digitalWrite(SOLENOID_IN3_PIN, HIGH);
+    digitalWrite(SOLENOID_IN4_PIN, LOW);
 }
 
-void MotorController::openSlowSolenoid() {
-    digitalWrite(SLOW_SOLENOID_IN3_PIN, LOW);
-    digitalWrite(SLOW_SOLENOID_IN4_PIN, LOW);
-}
-
-void MotorController::openFastSolenoid() {
-    // Needs to go through a transistor still
-    digitalWrite(FAST_SOLENOID_CONTROL, LOW);
-}
-
-void MotorController::closeFastSolenoid() {
-    // Needs to go through a transistor still
-    digitalWrite(FAST_SOLENOID_CONTROL, HIGH);
+void MotorController::openSolenoid() {
+    digitalWrite(SOLENOID_IN3_PIN, LOW);
+    digitalWrite(SOLENOID_IN4_PIN, LOW);
 }
 
 #else
@@ -79,10 +65,6 @@ void MotorController::stopInflation() {}
 void MotorController::startDeflation() {}
 void MotorController::stopDeflation() {}
 void MotorController::emergencyStop() {}
-void MotorController::setMotor(bool on) {}
-void MotorController::setMotorDirection(bool forward) {}
-void MotorController::closeSlowSolenoid() {}
-void MotorController::openSlowSolenoid() {}
-void MotorController::openFastSolenoid() {}
-void MotorController::closeFastSolenoid() {}
+void MotorController::openSolenoid() {}
+void MotorController::closeSolenoid() {}
 #endif
