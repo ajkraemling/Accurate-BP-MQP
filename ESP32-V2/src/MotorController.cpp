@@ -18,6 +18,7 @@ void MotorController::startInflation() {
     stopDeflation();
     digitalWrite(MOTOR_IN1_PIN, HIGH);
     digitalWrite(MOTOR_IN2_PIN, LOW);
+    digitalWrite(4, LOW);
 
     inflating = true;
 }
@@ -30,6 +31,7 @@ void MotorController::stopInflation() {
 
 void MotorController::startDeflation() {
     stopInflation();
+    digitalWrite(4, HIGH);
 
     deflating = true;
 }

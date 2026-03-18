@@ -412,7 +412,7 @@ BPResult BPMonitor::getEnsembleResult() const
             float p = top[j].pressure;
             float w = top[j].confidence;
 
-            if (p <= 40.0f || p >= 185.0f)
+            if (p <= 0.0f || p >= 185.0f)
             {
 
                 continue;
