@@ -148,7 +148,7 @@ private:
     char nameBuffer[64];
 
     // Analysis helpers
-    bool isEnvelopeFlat(int lookback);
+    bool isEnvelopeFlat(int lookback, int offset);
     bool isEnvelopeIncreasing(int lookback);
     float calculateSlope(int samples);
     float calculateIntercept(float slope, int idx);

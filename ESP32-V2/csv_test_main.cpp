@@ -860,83 +860,83 @@ int main(int argc, char* argv[]) {
     // float thresholds[] = {1.5, 1.7, 2.0, 2.2, 2.4, 2.7, 3.0};
     // int holds[] = {10, 15, 20, 25, 30};
 
-    // int windows[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200};
+    int windows[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220};
     // int windows[] = {50, 60, 70, 80, 90, 100, 110, 120, 130};
     // int windows[] = {10, 20, 30, 40, 50};
     // int windows[] = {130, 140, 150, 160, 170, 180, 190, 200, 220, 230, 250, 270, 290, 320, 350, 380, 400};
     // int windows[] = {120, 130, 140, 150, 160, 170};
     // // float thresholds[] = {1.8, 2.0, 2.2, 2.4};
-    // float thresholds[] = {3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5};
-    // int minDev[] = {10, 20, 30};
-    // for (int w : windows) {
-    //     for (float t : thresholds) {
-    //         for (int d : minDev) {
+    float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0};
+    int minDev[] = {10, 20, 30};
+    for (int w : windows) {
+        for (float t : thresholds) {
+            for (int d : minDev) {
+                auto* det = new BaselineDetector(w, t, d);
+                allocatedDetectors.push_back(det);
+                monitor.addDetector(det);
+            }
+        }
+    }
+    
+    
+    // Final detector decisions:
+    // TIER ONE (BEST PERFORMING DETECTORS, 80 detectors) 
+    // int t1Windows[] = {60, 70, 80, 90, 100};
+    // float t1Thresh[] = {1.8, 1.9, 2.0, 2.2};
+    // int t1Dev[] = {5, 10, 12, 16};
+
+    // for (int w : t1Windows) {
+    //     for (float t : t1Thresh) {
+    //         for (int d : t1Dev) {
     //             auto* det = new BaselineDetector(w, t, d);
     //             allocatedDetectors.push_back(det);
     //             monitor.addDetector(det);
     //         }
     //     }
     // }
-    
-    
-    // Final detector decisions:
-    // TIER ONE (BEST PERFORMING DETECTORS, 80 detectors) 
-    int t1Windows[] = {60, 70, 80, 90, 100};
-    float t1Thresh[] = {1.8, 1.9, 2.0, 2.2};
-    int t1Dev[] = {5, 10, 12, 16};
 
-    for (int w : t1Windows) {
-        for (float t : t1Thresh) {
-            for (int d : t1Dev) {
-                auto* det = new BaselineDetector(w, t, d);
-                allocatedDetectors.push_back(det);
-                monitor.addDetector(det);
-            }
-        }
-    }
+    // // TIER TWO (HIGH WINDOW DETECTORS, 40 detectors) 
+    // int t2Windows[] = {110, 120, 130, 140, 150};
+    // float t2Thresh[] = {2.0, 2.4, 2.8, 3.3};
+    // int t2Dev[] = {12, 18};
 
-    // TIER TWO (HIGH WINDOW DETECTORS, 40 detectors) 
-    int t2Windows[] = {110, 120, 130, 140, 150};
-    float t2Thresh[] = {2.0, 2.4, 2.8, 3.3};
-    int t2Dev[] = {12, 18};
-
-    for (int w : t2Windows) {
-        for (float t : t2Thresh) {
-            for (int d : t2Dev) {
-                auto* det = new BaselineDetector(w, t, d);
-                allocatedDetectors.push_back(det);
-                monitor.addDetector(det);
-            }
-        }
-    }
-
-    // TIER THREE (LOW WINDOW DETECTORS, 24 detectors) 
-    int t3Windows[] = {20, 30, 40, 50};
-    float t3Thresh[] = {1.65, 1.8, 2.0};
-    int t3Dev[] = {12, 15};
-
-    for (int w : t3Windows) {
-        for (float t : t3Thresh) {
-            for (int d : t3Dev) {
-                auto* det = new BaselineDetector(w, t, d);
-                allocatedDetectors.push_back(det);
-                monitor.addDetector(det);
-            }
-        }
-    }
-
-    
-    // int drv_th[] = {4, 6, 8, 10, 12, 16, 20};
-
-    // for (int w : drv_th) {
-    //     auto* env_det = new EnvelopeSystolicDetector(w);
-    //     allocatedDetectors.push_back(env_det);
-    //     monitor.addDetector(env_det);
-
-    //     auto* der_det = new DerivativeDetector(w);
-    //     allocatedDetectors.push_back(der_det);
-    //     monitor.addDetector(der_det);
+    // for (int w : t2Windows) {
+    //     for (float t : t2Thresh) {
+    //         for (int d : t2Dev) {
+    //             auto* det = new BaselineDetector(w, t, d);
+    //             allocatedDetectors.push_back(det);
+    //             monitor.addDetector(det);
+    //         }
+    //     }
     // }
+
+    // // TIER THREE (LOW WINDOW DETECTORS, 24 detectors) 
+    // int t3Windows[] = {20, 30, 40, 50};
+    // float t3Thresh[] = {1.65, 1.8, 2.0};
+    // int t3Dev[] = {12, 15};
+
+    // for (int w : t3Windows) {
+    //     for (float t : t3Thresh) {
+    //         for (int d : t3Dev) {
+    //             auto* det = new BaselineDetector(w, t, d);
+    //             allocatedDetectors.push_back(det);
+    //             monitor.addDetector(det);
+    //         }
+    //     }
+    // }
+
+    
+    int drv_th[] = {4, 6, 8, 10, 12, 16, 20};
+
+    for (int w : drv_th) {
+        auto* env_det = new EnvelopeSystolicDetector(w);
+        allocatedDetectors.push_back(env_det);
+        monitor.addDetector(env_det);
+
+        auto* der_det = new DerivativeDetector(w);
+        allocatedDetectors.push_back(der_det);
+        monitor.addDetector(der_det);
+    }
 
     std::cout << "Using " << monitor.getDetectorCount() << " detectors\n";
 

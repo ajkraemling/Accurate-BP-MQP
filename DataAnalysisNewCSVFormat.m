@@ -8,8 +8,6 @@ clear; clc; close all;
 fprintf('=== STARTING BLOOD PRESSURE ANALYSIS ===\n');
 
 %% Configuration
-% Select CSV files to analyze
-
 selectedFiles = {};
 
 while true
@@ -17,15 +15,11 @@ while true
                               'Select CSV files (Cancel to finish)', ...
                               'MultiSelect', 'on');
     if isequal(files, 0)
-        break;  % Done selecting directories
+        break;
     end
-
-    % Ensure files is a cell array
     if ~iscell(files)
         files = {files};
     end
-
-    % Append all selected files with full path
     for i = 1:length(files)
         selectedFiles{end+1} = fullfile(path, files{i});
     end
@@ -45,86 +39,60 @@ runCounter = 1;
 fprintf('Loading %d files...\n', length(files));
 
 for fileIdx = 1:length(files)
-    filename = files{fileIdx};   % already full path
-
-    % Extract name for display
+    filename = files{fileIdx};
     [~, shortName, ext] = fileparts(filename);
     fprintf(' Loading: %s%s\n', shortName, ext);
-    
-    % Read the entire file as text to find summary section
+
     fid = fopen(filename, 'r');
     if fid == -1
         fprintf('  ERROR: Could not open file\n');
         continue;
     end
-    
     fileContent = fread(fid, '*char')';
     fclose(fid);
-    
-    % Find summary section
+
     summaryStart = strfind(fileContent, '#SUMMARY_START');
-    summaryEnd = strfind(fileContent, '#SUMMARY_END');
-    
+    summaryEnd   = strfind(fileContent, '#SUMMARY_END');
+
     if isempty(summaryStart) || isempty(summaryEnd)
         fprintf('  WARNING: No SUMMARY section found, skipping file\n');
         continue;
     end
-    
-    % Extract main data (before summary)
+
     mainDataText = fileContent(1:summaryStart-1);
-    
-    % Write main data to temp file and read as table
     tempFile = tempname;
     fid = fopen(tempFile, 'w');
     fprintf(fid, '%s', mainDataText);
     fclose(fid);
-    
     opts = detectImportOptions(tempFile);
     opts.VariableNamesLine = 1;
     data = readtable(tempFile, opts);
     delete(tempFile);
-    
     fprintf('  Initial data has %d rows\n', height(data));
-    
-    % Extract summary section
-    summaryText = fileContent(summaryStart:summaryEnd);
-    
-    % Parse summary into table
+
+    summaryText  = fileContent(summaryStart:summaryEnd);
     summaryLines = strsplit(summaryText, '\n');
-    summaryData = {};
-    
+    summaryData  = {};
     for i = 1:length(summaryLines)
         line = strtrim(summaryLines{i});
-        if isempty(line) || startsWith(line, '#')
-            continue;
-        end
-        if startsWith(line, 'Detector,')
-            continue;  % Skip header
-        end
-        
-        % Parse CSV line: Detector,Timestamp,Pressure,Confidence
+        if isempty(line) || startsWith(line, '#'); continue; end
+        if startsWith(line, 'Detector,');          continue; end
         parts = strsplit(line, ',');
         if length(parts) >= 4
             summaryData{end+1} = struct(...
-                'Detector', strtrim(parts{1}), ...
-                'Timestamp', str2double(parts{2}), ...
-                'Pressure', str2double(parts{3}), ...
+                'Detector',   strtrim(parts{1}), ...
+                'Timestamp',  str2double(parts{2}), ...
+                'Pressure',   str2double(parts{3}), ...
                 'Confidence', str2double(parts{4}));
         end
     end
-    
     fprintf('  Found %d summary entries\n', length(summaryData));
 
-    % Split data into runs (same as before)
     run = {data(data.Pressure >= 30, :)};
- 
     fprintf('  Found %d run(s) in this file\n', length(run));
-    
-    % Process each run
+
     for runIdx = 1:length(run)
         runData = run{runIdx};
-        
-        % Create run info structure
         runInfo = struct();
 
         [fullPath, shortName, ext] = fileparts(filename);
@@ -132,67 +100,65 @@ for fileIdx = 1:length(files)
         displayBase = fullfile(folderName, [shortName, ext]);
 
         if length(run) == 1
-            runInfo.filename = filename;
+            runInfo.filename    = filename;
             runInfo.displayName = displayBase;
         else
-            runInfo.filename = filename;
+            runInfo.filename    = filename;
             runInfo.displayName = sprintf('%s (Run %d)', displayBase, runIdx);
         end
         runInfo.fileIdx = fileIdx;
-        runInfo.runIdx = runIdx;
-        runInfo.data = runData;
-        
-        % Initialize optional fields
-        runInfo.hasRawPPG = false;
-        runInfo.hasAusPulse = false;
-        runInfo.pulseHeardIndices = [];
-        runInfo.hasGroundTruth = false;
+        runInfo.runIdx  = runIdx;
+        runInfo.data    = runData;
+
+        runInfo.hasRawPPG           = false;
+        runInfo.hasAusPulse         = false;
+        runInfo.pulseHeardIndices   = [];
+        runInfo.hasGroundTruth      = false;
         runInfo.groundTruthPressure = NaN;
-        
-        % Check for MAP oscillometric columns (legacy support)
-        mapCols = {'Osc_Amp', 'Osc_SBP', 'MAP', 'Osc_DBP'};
+
+        % MAP columns (legacy)
+        mapCols = {'Osc_Amp','Osc_SBP','MAP','Osc_DBP'};
         if all(ismember(mapCols, runData.Properties.VariableNames))
-            runInfo.hasMAP = true;
-            runInfo.oscAmp = runData.Osc_Amp * 50;
-            runInfo.oscSBP = runData.Osc_SBP;
-            runInfo.MAP = runData.MAP;
-            runInfo.oscDBP = runData.Osc_DBP;
+            runInfo.hasMAP  = true;
+            runInfo.oscAmp  = runData.Osc_Amp * 50;
+            runInfo.oscSBP  = runData.Osc_SBP;
+            runInfo.MAP     = runData.MAP;
+            runInfo.oscDBP  = runData.Osc_DBP;
             fprintf('  *** FOUND MAP DATA (legacy columns) ***\n');
         else
             runInfo.hasMAP = false;
         end
-        
-        % Check for rawPPGSignal column
+
+        % PPG columns
         if ismember('rawPPGSignal', runData.Properties.VariableNames)
             rawPPG = runData.rawPPGSignal;
-            if (ismember("PPGSignal", runData.Properties.VariableNames))
+            if ismember("PPGSignal", runData.Properties.VariableNames)
                 runInfo.ppg = runData.PPGSignal;
             else
                 runInfo.ppg = rawPPG;
             end
-            rawPPG = rawPPG - mean(rawPPG, 'omitnan') + mean(runInfo.ppg, 'omitnan');
-            runInfo.rawPPG = rawPPG;
+            rawPPG = rawPPG - mean(rawPPG,'omitnan') + mean(runInfo.ppg,'omitnan');
+            runInfo.rawPPG    = rawPPG;
             runInfo.hasRawPPG = true;
         elseif ismember('PPG', runData.Properties.VariableNames)
             rawPPG = runData.PPG;
-            if (ismember("PPGSignal", runData.Properties.VariableNames))
+            if ismember("PPGSignal", runData.Properties.VariableNames)
                 runInfo.ppg = runData.PPGSignal;
             else
                 runInfo.ppg = rawPPG;
             end
-            rawPPG = rawPPG - mean(rawPPG, 'omitnan') + mean(runInfo.ppg, 'omitnan');
-            runInfo.rawPPG = rawPPG;
+            rawPPG = rawPPG - mean(rawPPG,'omitnan') + mean(runInfo.ppg,'omitnan');
+            runInfo.rawPPG    = rawPPG;
             runInfo.hasRawPPG = true;
         end
 
-        % Extract time and pressure
-        if (ismember("Time", runData.Properties.VariableNames))
-            runInfo.time = runData.Time / 1000; % Convert to seconds
-        elseif ((ismember("Timestamp", runData.Properties.VariableNames)))
+        if ismember("Time", runData.Properties.VariableNames)
+            runInfo.time = runData.Time / 1000;
+        elseif ismember("Timestamp", runData.Properties.VariableNames)
             runInfo.time = runData.Timestamp / 1000;
         end
 
-        if (ismember("PPGSignal", runData.Properties.VariableNames))
+        if ismember("PPGSignal", runData.Properties.VariableNames)
             runInfo.ppg = runData.PPGSignal;
         else
             if isfield(runInfo, "rawPPG")
@@ -202,22 +168,18 @@ for fileIdx = 1:length(files)
             end
         end
         runInfo.pressure = runData.Pressure;
-        
-        % Check for AUS_PULSE_HEARD column
-        ausColExists = ismember('AUS_PULSE_HEARD', runData.Properties.VariableNames);
-        
-        if ausColExists
-            runInfo.ausPulseHeard = runData.AUS_PULSE_HEARD;
+
+        % AUS_PULSE_HEARD / ground truth
+        if ismember('AUS_PULSE_HEARD', runData.Properties.VariableNames)
+            runInfo.ausPulseHeard     = runData.AUS_PULSE_HEARD;
             runInfo.pulseHeardIndices = find(runData.AUS_PULSE_HEARD == 1);
-            runInfo.hasAusPulse = true;
+            runInfo.hasAusPulse       = true;
             fprintf('  *** FOUND AUS_PULSE_HEARD with %d pulses ***\n', length(runInfo.pulseHeardIndices));
-            
-            % Extract ground truth (first pulse heard)
             if ~isempty(runInfo.pulseHeardIndices)
-                firstPulseIdx = runInfo.pulseHeardIndices(1);
+                firstPulseIdx               = runInfo.pulseHeardIndices(1);
                 runInfo.groundTruthPressure = runInfo.pressure(firstPulseIdx);
-                runInfo.groundTruthTime = runInfo.time(firstPulseIdx);
-                runInfo.hasGroundTruth = true;
+                runInfo.groundTruthTime     = runInfo.time(firstPulseIdx);
+                runInfo.hasGroundTruth      = true;
                 fprintf('  *** GROUND TRUTH: %.1f mmHg at %.2f s ***\n', ...
                     runInfo.groundTruthPressure, runInfo.groundTruthTime);
             end
@@ -225,21 +187,20 @@ for fileIdx = 1:length(files)
             fprintf('  AUS_PULSE_HEARD not found\n');
         end
 
-        % Extract SBP from filename if present
+        % SBP reference from filename
         runInfo.hasSBPReference = false;
-        runInfo.sbpReference = NaN;
-        
+        runInfo.sbpReference    = NaN;
         [~, fname, ~] = fileparts(filename);
         tokens = regexp(fname, '^SBP(\d+)_', 'tokens');
         if ~isempty(tokens)
             runInfo.hasSBPReference = true;
-            runInfo.sbpReference = str2double(tokens{1}{1});
+            runInfo.sbpReference    = str2double(tokens{1}{1});
             fprintf('  *** FOUND SBP REFERENCE: %d mmHg from filename ***\n', runInfo.sbpReference);
         end
-        
-        % Extract person name from filename (search anywhere in filename)
+
+        % Person name
         runInfo.personName = '';
-        targetNames = {'Harleen', 'Brendan', 'Taegon', 'Alex', 'Alexander', 'Kali', 'Nina'};
+        targetNames = {'Harleen','Brendan','Taegon','Alex','Alexander','Kali','Nina'};
         for nameIdx = 1:length(targetNames)
             if contains(lower(fname), lower(targetNames{nameIdx}))
                 runInfo.personName = targetNames{nameIdx};
@@ -247,115 +208,98 @@ for fileIdx = 1:length(files)
                 break;
             end
         end
-        
-        % Process summary data - find best detection for each detector
-        detectorMap = containers.Map();
-        postProcessors = {'Ensemble', 'OscSys', 'OscMAP', 'OscDia', 'EstDia', 'BPM'};
-        
+
+        % Parse SUMMARY detectors
+        detectorMap    = containers.Map();
+        postProcessors = {'Ensemble','OscSys','OscMAP','OscDia','EstDia','BPM'};
+
         for i = 1:length(summaryData)
-            entry = summaryData{i};
+            entry   = summaryData{i};
             detName = entry.Detector;
-            
-            % Skip if timestamp/pressure is invalid (but allow BPM)
             if entry.Timestamp == 0 || entry.Pressure < 0
-                if ~strcmp(detName, 'BPM')
-                    continue;
-                end
+                if ~strcmp(detName, 'BPM'); continue; end
             end
-            
-            % For post-processors, just store the value
             if ismember(detName, postProcessors)
                 detectorMap(detName) = entry;
                 continue;
             end
-            
-            % For regular detectors, keep highest confidence
             if ~isKey(detectorMap, detName) || entry.Confidence > detectorMap(detName).Confidence
                 detectorMap(detName) = entry;
             end
         end
-        
-        % Extract BPM (heart rate) if available
+
+        % BPM
         runInfo.hasBPM = false;
-        runInfo.bpm = NaN;
+        runInfo.bpm    = NaN;
         if isKey(detectorMap, 'BPM')
-            bpmEntry = detectorMap('BPM');
-            runInfo.bpm = bpmEntry.Pressure;  % BPM stored in pressure field
+            bpmEntry       = detectorMap('BPM');
+            runInfo.bpm    = bpmEntry.Pressure;
             runInfo.hasBPM = true;
             fprintf('  *** FOUND BPM: %.1f ***\n', runInfo.bpm);
         end
-        
-        % Extract detector names
-        detectorNames = keys(detectorMap);
+
+        detectorNames      = keys(detectorMap);
         algorithmDetectors = detectorNames(~ismember(detectorNames, postProcessors));
-        postDetectors = detectorNames(ismember(detectorNames, postProcessors));
-        
-        runInfo.detectors = algorithmDetectors;
-        runInfo.post = postDetectors;
-        
-        % Store post-processor values
+        postDetectors      = detectorNames( ismember(detectorNames, postProcessors));
+
+        runInfo.detectors  = algorithmDetectors;
+        runInfo.post       = postDetectors;
+
         runInfo.postValues = struct();
         for i = 1:length(postDetectors)
             detName = postDetectors{i};
-            entry = detectorMap(detName);
+            entry   = detectorMap(detName);
             runInfo.postValues.(detName) = entry.Pressure;
         end
-        
+
         fprintf('  Found %d algorithm detectors, %d post-processors\n', ...
             length(algorithmDetectors), length(postDetectors));
-        
-        % Create detection structures
+
         runInfo.detections = containers.Map();
-        
         for i = 1:length(algorithmDetectors)
             detectorName = algorithmDetectors{i};
-            entry = detectorMap(detectorName);
-            
-            detection = struct();
-            detection.detected = true;
-            detection.pressure = entry.Pressure;
+            entry        = detectorMap(detectorName);
+
+            detection            = struct();
+            detection.detected   = true;
+            detection.pressure   = entry.Pressure;
             detection.confidence = entry.Confidence;
-            detection.timestamp = entry.Timestamp;
-            detection.time = entry.Timestamp / 1000;  % Convert to seconds
-            detection.value = entry.Pressure;
-            
-            % Calculate error from ground truth if available
+            detection.timestamp  = entry.Timestamp;
+            detection.time       = entry.Timestamp / 1000;
+            detection.value      = entry.Pressure;
+
             if runInfo.hasGroundTruth
-                detection.error = detection.pressure - runInfo.groundTruthPressure;
+                detection.error    = detection.pressure - runInfo.groundTruthPressure;
                 detection.absError = abs(detection.error);
             else
-                detection.error = NaN;
+                detection.error    = NaN;
                 detection.absError = NaN;
             end
-            
-            % Calculate error from SBP reference if available
             if runInfo.hasSBPReference
-                detection.sbpError = detection.pressure - runInfo.sbpReference;
+                detection.sbpError    = detection.pressure - runInfo.sbpReference;
                 detection.sbpAbsError = abs(detection.sbpError);
             else
-                detection.sbpError = NaN;
+                detection.sbpError    = NaN;
                 detection.sbpAbsError = NaN;
             end
-            
+
             runInfo.detections(detectorName) = detection;
         end
-        
-        % Check for baseline beat (legacy support)
+
         if ismember('BaselineBeat', runData.Properties.VariableNames)
-            runInfo.baselineBeat = runData.BaselineBeat;
+            runInfo.baselineBeat    = runData.BaselineBeat;
             runInfo.hasBaselineBeat = true;
         else
-            runInfo.baselineBeat = [];
+            runInfo.baselineBeat    = [];
             runInfo.hasBaselineBeat = false;
         end
-        
-        % Add to runs list
+
         allRuns{runCounter} = runInfo;
         runCounter = runCounter + 1;
     end
 end
 
-% Get all unique detectors
+% Collect unique detectors
 allDetectors = {};
 for i = 1:length(allRuns)
     allDetectors = union(allDetectors, allRuns{i}.detectors);
@@ -364,36 +308,32 @@ end
 fprintf('\nFound %d total run(s) across all files.\n', length(allRuns));
 fprintf('Found %d unique detectors across all runs.\n', length(allDetectors));
 
-% Count runs with ground truth
 runsWithGroundTruth = sum(cellfun(@(r) r.hasGroundTruth, allRuns));
 fprintf('Found %d run(s) with ground truth data.\n\n', runsWithGroundTruth);
 
-% Count runs with SBP reference
 runsWithSBPRef = sum(cellfun(@(r) r.hasSBPReference, allRuns));
 fprintf('Found %d run(s) with SBP reference in filename.\n\n', runsWithSBPRef);
 
-% Count runs with BPM
-runsWithBPM = sum(cellfun(@(r) isfield(r, 'hasBPM') && r.hasBPM, allRuns));
+runsWithBPM = sum(cellfun(@(r) isfield(r,'hasBPM') && r.hasBPM, allRuns));
 fprintf('Found %d run(s) with BPM (heart rate) data.\n\n', runsWithBPM);
 
 %% Create Main Tabbed Figure
-screenSize = get(0, 'ScreenSize');
-figWidth = 1600;
-figHeight = 900;
-figLeft = max(1, (screenSize(3) - figWidth) / 2);
-figBottom = max(1, (screenSize(4) - figHeight) / 2);
+screenSize = get(0,'ScreenSize');
+figWidth   = 1600; figHeight = 900;
+figLeft    = max(1, (screenSize(3) - figWidth)  / 2);
+figBottom  = max(1, (screenSize(4) - figHeight) / 2);
 
-mainFig = figure('Name', 'Blood Pressure Analysis', ...
-    'Position', [figLeft, figBottom, figWidth, figHeight], ...
-    'NumberTitle', 'off');
+mainFig = figure('Name','Blood Pressure Analysis', ...
+    'Position',[figLeft, figBottom, figWidth, figHeight], ...
+    'NumberTitle','off');
 
-% Create tab group
 tabGroup = uitabgroup(mainFig);
 
-% Create comparison tabs
+% Detector Comparison
 compTab = uitab(tabGroup, 'Title', 'Detector Comparison');
 createComparisonTab(compTab, allRuns, allDetectors);
 
+% Baseline (BL) Analysis
 blTab = uitab(tabGroup, 'Title', 'Baseline Analysis');
 createBLAnalysisTab(blTab, allRuns, allDetectors);
 
@@ -402,40 +342,37 @@ if runsWithGroundTruth > 0
     createBLAnalysisTab_v2(blTab_v2, allRuns, allDetectors);
 end
 
+% Derivative (DRV) Analysis
 drvTab = uitab(tabGroup, 'Title', 'Derivative Analysis');
 createDRVAnalysisTab(drvTab, allRuns, allDetectors);
 
-% Create per-person baseline analysis tabs
-personNames = {'Harleen', 'Brendan', 'Taegon', 'Alex', 'Alexander', 'Kali', 'Nina'};
+% Envelope (ENV) Analysis
+envTab = uitab(tabGroup, 'Title', 'Envelope Analysis');
+createENVAnalysisTab(envTab, allRuns, allDetectors);
+
+% Per-person tabs
+personNames = {'Harleen','Brendan','Taegon','Alex','Alexander','Kali','Nina'};
 for i = 1:length(personNames)
     personName = personNames{i};
-    
-    % For Alex, also include Alexander in the filter
     if strcmpi(personName, 'Alex')
-        personRuns = filterRunsByName(allRuns, {'Alex', 'Alexander'});
+        personRuns  = filterRunsByName(allRuns, {'Alex','Alexander'});
         displayName = 'Alex/Alexander';
     elseif strcmpi(personName, 'Alexander')
-        % Skip Alexander since it's already handled with Alex
         continue;
     else
-        personRuns = filterRunsByName(allRuns, {personName});
+        personRuns  = filterRunsByName(allRuns, {personName});
         displayName = personName;
     end
-    
+
     if ~isempty(personRuns)
-        % Create baseline analysis tab for this person
-        tabName = sprintf('%s - BL Analysis', displayName);
-        personTab = uitab(tabGroup, 'Title', tabName);
+        personTab = uitab(tabGroup, 'Title', sprintf('%s - BL Analysis', displayName));
         createBLAnalysisTab(personTab, personRuns, allDetectors);
-        
-        % Create error analysis tab if they have ground truth data
+
         personRunsGT = personRuns(cellfun(@(r) r.hasGroundTruth, personRuns));
         if ~isempty(personRunsGT)
-            tabName = sprintf('%s - BL Error', displayName);
-            personTabErr = uitab(tabGroup, 'Title', tabName);
+            personTabErr = uitab(tabGroup, 'Title', sprintf('%s - BL Error', displayName));
             createBLAnalysisTab_v2(personTabErr, personRuns, allDetectors);
         end
-        
         fprintf('Created analysis tabs for %s (%d runs, %d with GT)\n', ...
             displayName, length(personRuns), length(personRunsGT));
     else
@@ -443,49 +380,41 @@ for i = 1:length(personNames)
     end
 end
 
-% Create heart rate analysis tab if we have BPM and ground truth data
-runsWithBPM = allRuns(cellfun(@(r) isfield(r, 'hasBPM') && r.hasBPM, allRuns));
-if ~isempty(runsWithBPM) && runsWithGroundTruth > 0
+% Heart Rate Analysis
+runsWithBPMList = allRuns(cellfun(@(r) isfield(r,'hasBPM') && r.hasBPM, allRuns));
+if ~isempty(runsWithBPMList) && runsWithGroundTruth > 0
     hrTab = uitab(tabGroup, 'Title', 'Heart Rate Analysis');
     createHeartRateAnalysisTab(hrTab, allRuns, allDetectors);
 end
 
-% Create ground truth error analysis tab if applicable
+% Ground Truth paginated ranking tabs
 if runsWithGroundTruth > 0
-    gtTab = uitab(tabGroup, 'Title', 'Ground Truth Analysis');
-    createGroundTruthTab(gtTab, allRuns, allDetectors);
+    createGroundTruthTabGroup(tabGroup, allRuns, allDetectors);
 end
 
-% Create SBP reference error analysis tab if applicable
+% SBP Reference paginated ranking tabs
 if runsWithSBPRef > 0
-    sbpTab = uitab(tabGroup, 'Title', 'SBP Reference Analysis');
-    createSBPReferenceTab(sbpTab, allRuns, allDetectors);
+    createSBPReferenceTabGroup(tabGroup, allRuns, allDetectors);
 end
 
-% Create tabs for each run
+% Individual run tabs
 for i = 1:length(allRuns)
     [~, baseName, ~] = fileparts(allRuns{i}.filename);
-    if allRuns{i}.runIdx > 0
-        tabName = sprintf('%s-R%d', baseName, allRuns{i}.runIdx);
-    else
-        tabName = baseName;
-    end
+    tabName = sprintf('%s-R%d', baseName, allRuns{i}.runIdx);
     tab = uitab(tabGroup, 'Title', tabName);
     createFileTab(tab, allRuns{i});
 end
 
 fprintf('\nAnalysis complete! Use the tabs to navigate between views.\n');
 
+%% ========================================================================
 %% Helper Functions
+%% ========================================================================
 
 function filteredRuns = filterRunsByName(allRuns, namePatterns)
-    % Filter runs by person name in filename
-    % namePatterns: cell array of name strings to match (case-insensitive)
     filteredRuns = {};
-    
     for i = 1:length(allRuns)
-        if isfield(allRuns{i}, 'personName') && ~isempty(allRuns{i}.personName)
-            % Check if person name matches any of the patterns
+        if isfield(allRuns{i},'personName') && ~isempty(allRuns{i}.personName)
             for j = 1:length(namePatterns)
                 if strcmpi(allRuns{i}.personName, namePatterns{j})
                     filteredRuns{end+1} = allRuns{i};
@@ -496,46 +425,35 @@ function filteredRuns = filterRunsByName(allRuns, namePatterns)
     end
 end
 
+% -------------------------------------------------------------------------
 function createFileTab(parentTab, runInfo)
     ax = axes('Parent', parentTab, 'Position', [0.08, 0.15, 0.78, 0.75]);
-    
-    % Safety check
-    if ~isfield(runInfo, 'hasAusPulse')
-        runInfo.hasAusPulse = false;
+
+    if ~isfield(runInfo,'hasAusPulse')
+        runInfo.hasAusPulse       = false;
         runInfo.pulseHeardIndices = [];
     end
-    
-    % Plot PPG on left y-axis
-    yyaxis left
-    hold on; grid on;
-    
-    % --- Raw PPG (optional)
-    if runInfo.hasRawPPG
-        h3 = plot(runInfo.time, runInfo.rawPPG, 'Color', [1 0.6 0.6], 'LineWidth', 0.8);
-    end
-    
-    % --- Primary filtered PPG signal
-    h2 = plot(runInfo.time, runInfo.ppg, 'r-', 'LineWidth', 1.0);
 
-    % Set left y-axis label and color
-    ylabel('PPG and Raw PPG', 'FontSize', 12);
+    yyaxis left; hold on; grid on;
+    if runInfo.hasRawPPG
+        h3 = plot(runInfo.time, runInfo.rawPPG, 'Color',[1 0.6 0.6], 'LineWidth',0.8);
+    end
+    h2 = plot(runInfo.time, runInfo.ppg, 'r-', 'LineWidth',1.0);
+    ylabel('PPG and Raw PPG','FontSize',12);
     ax.YColor = 'r';
-    
-    % Plot Pressure on right y-axis
-    yyaxis right
-    hold on;
-    h1 = plot(runInfo.time, runInfo.pressure, 'b-', 'LineWidth', 1.5);
-    ylabel('Pressure (mmHg)', 'FontSize', 12);
+
+    yyaxis right; hold on;
+    h1 = plot(runInfo.time, runInfo.pressure, 'b-', 'LineWidth',1.5);
+    ylabel('Pressure (mmHg)','FontSize',12);
     ax.YColor = 'b';
-    
-    % Sort detectors by detection pressure
-    detectorPressures = zeros(length(runInfo.detectors), 1);
+
+    detectorPressures = zeros(length(runInfo.detectors),1);
     for j = 1:length(runInfo.detectors)
         detName = runInfo.detectors{j};
         if isKey(runInfo.detections, detName)
-            detection = runInfo.detections(detName);
-            if detection.detected
-                detectorPressures(j) = detection.pressure;
+            det = runInfo.detections(detName);
+            if det.detected
+                detectorPressures(j) = det.pressure;
             else
                 detectorPressures(j) = inf;
             end
@@ -543,915 +461,669 @@ function createFileTab(parentTab, runInfo)
             detectorPressures(j) = inf;
         end
     end
-    [~, sortIdx] = sort(detectorPressures);
+    [~, sortIdx]    = sort(detectorPressures);
     sortedDetectors = runInfo.detectors(sortIdx);
-    
-    % Build legend
+
     colors = lines(length(sortedDetectors));
     if runInfo.hasRawPPG
         legendHandles = [h1, h2, h3];
-        legendLabels = {'Pressure', 'PPG (Filtered)', 'PPG (Raw)'};
+        legendLabels  = {'Pressure','PPG (Filtered)','PPG (Raw)'};
     else
         legendHandles = [h1, h2];
-        legendLabels = {'Pressure', 'PPG'};
+        legendLabels  = {'Pressure','PPG'};
     end
-    
+
     hasGroundTruth = runInfo.hasGroundTruth;
-    
-    % Plot detector lines
+
     for j = 1:length(sortedDetectors)
-        detName = sortedDetectors{j};
+        detName  = sortedDetectors{j};
         safeName = strrep(detName, '_', '\_');
         if isKey(runInfo.detections, detName)
-            detection = runInfo.detections(detName);
-            detTime = detection.time;
-            detPressure = detection.pressure;
-
-            if detection.detected && ~isnan(detTime)
-                xline(detTime, '--', 'Color', colors(j,:), 'LineWidth', 1.5);
-                h = plot(detTime, detPressure, 'o', 'Color', colors(j,:), ...
-                    'MarkerSize', 10, 'LineWidth', 2);
+            det = runInfo.detections(detName);
+            if det.detected && ~isnan(det.time)
+                xline(det.time, '--', 'Color', colors(j,:), 'LineWidth', 1.5);
+                h = plot(det.time, det.pressure, 'o', 'Color', colors(j,:), ...
+                    'MarkerSize',10,'LineWidth',2);
                 legendHandles(end+1) = h;
-
-                % Add error and confidence to legend
+                % Use plain "Err=" to avoid invalid \D escape in sprintf
                 if hasGroundTruth
-                    legendLabels{end+1} = sprintf('%s: %.1f mmHg (Δ=%.1f, C=%.2f)', ...
-                        safeName, detPressure, detection.error, detection.confidence);
+                    legendLabels{end+1} = sprintf('%s: %.1f mmHg (Err=%.1f, C=%.2f)', ...
+                        safeName, det.pressure, det.error, det.confidence);
                 else
                     legendLabels{end+1} = sprintf('%s: %.1f mmHg (C=%.2f)', ...
-                        safeName, detPressure, detection.confidence);
+                        safeName, det.pressure, det.confidence);
                 end
             else
-                h = plot(NaN, NaN, 'o', 'Color', colors(j,:), 'MarkerSize', 10, 'LineWidth', 2);
+                h = plot(NaN, NaN, 'o', 'Color', colors(j,:), 'MarkerSize',10,'LineWidth',2);
                 legendHandles(end+1) = h;
-                legendLabels{end+1} = sprintf('%s: No detection', safeName);
+                legendLabels{end+1}  = sprintf('%s: No detection', safeName);
             end
         end
     end
 
-    % Create xlabel with blood pressure values
     xlabelStr = 'Time (s)';
-    
-    if isfield(runInfo, 'post') && iscell(runInfo.post) && ~isempty(runInfo.post) && ...
-       isfield(runInfo, 'postValues') && ~isempty(fieldnames(runInfo.postValues))
-        
+    if isfield(runInfo,'post') && iscell(runInfo.post) && ~isempty(runInfo.post) && ...
+       isfield(runInfo,'postValues') && ~isempty(fieldnames(runInfo.postValues))
         parts = {};
-        
-        % Loop through each post-processor
         for k = 1:numel(runInfo.post)
             colName = runInfo.post{k};
-            
-            % Check if we have a value stored for this column
             if isfield(runInfo.postValues, colName)
-                val = runInfo.postValues.(colName);
-                parts{end+1} = sprintf('%s: %.1f', colName, val);
+                parts{end+1} = sprintf('%s: %.1f', colName, runInfo.postValues.(colName));
             end
         end
-        
         if ~isempty(parts)
-            xlabelStr = sprintf('%s\n%s', xlabelStr, strjoin(parts, ' | '));
+            xlabelStr = sprintf('%s\n%s', xlabelStr, strjoin(parts,' | '));
         end
     end
-    
-    xlabel(xlabelStr, 'FontSize', 12, 'Interpreter', 'none');
-    
-    titleStr = sprintf('%s', runInfo.displayName);
+    xlabel(xlabelStr,'FontSize',12,'Interpreter','none');
+
+    titleStr = runInfo.displayName;
     if hasGroundTruth
         titleStr = sprintf('%s - Ground Truth: %.1f mmHg', titleStr, runInfo.groundTruthPressure);
     end
-    title(titleStr, 'FontSize', 14, 'Interpreter', 'none');
-    
-    lgd = legend(legendHandles, legendLabels, ...
-        'Location', 'eastoutside', ...
-        'FontSize', 9);
+    title(titleStr,'FontSize',14,'Interpreter','none');
+
+    lgd = legend(legendHandles, legendLabels, 'Location','eastoutside','FontSize',9);
     lgd.NumColumns = 1;
-    lgd.ItemHitFcn = @(src, evt) toggleVisibility(evt);
+    lgd.ItemHitFcn = @(src,evt) toggleVisibility(evt);
 end
 
+% -------------------------------------------------------------------------
 function toggleVisibility(evt)
     obj = evt.Peer;
-    if strcmp(obj.Visible, 'on')
-        obj.Visible = 'off';
-    else
-        obj.Visible = 'on';
+    if strcmp(obj.Visible,'on'); obj.Visible = 'off';
+    else;                        obj.Visible = 'on';
     end
 end
 
+% -------------------------------------------------------------------------
 function createComparisonTab(parentTab, allRuns, allDetectors)
-    numRuns = length(allRuns);
+    numRuns      = length(allRuns);
     numDetectors = length(allDetectors);
-    
-    % BUILD THE DETECTION PRESSURES MATRIX
+
     detectionPressures = nan(numDetectors, numRuns);
     for i = 1:numRuns
         for j = 1:numDetectors
             detName = allDetectors{j};
             if isKey(allRuns{i}.detections, detName)
-                detection = allRuns{i}.detections(detName);
-                if detection.detected
-                    detectionPressures(j, i) = detection.pressure;
+                det = allRuns{i}.detections(detName);
+                if det.detected
+                    detectionPressures(j,i) = det.pressure;
                 end
             end
         end
     end
-    
-    % Two plots: Mean pressure on top, success rate on bottom (full width)
+
     ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
     ax4 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
-    
-    % Mean and Std
+
     axes(ax3);
     meanPressures = mean(detectionPressures, 2, 'omitnan');
-    stdPressures = std(detectionPressures, 0, 2, 'omitnan');
-    
+    stdPressures  = std( detectionPressures, 0, 2, 'omitnan');
     fprintf('\nMean pressures:\n');
     for j = 1:numDetectors
-        fprintf('%s: %.2f ± %.2f\n', allDetectors{j}, meanPressures(j), stdPressures(j));
+        fprintf('%s: %.2f +/- %.2f\n', allDetectors{j}, meanPressures(j), stdPressures(j));
     end
-    
-    errorbar(1:numDetectors, meanPressures, stdPressures, 'o-', 'LineStyle', 'none', 'LineWidth', 1.5, 'MarkerSize', 8);
+    errorbar(1:numDetectors, meanPressures, stdPressures, 'o-', ...
+        'LineStyle','none','LineWidth',1.5,'MarkerSize',8);
     grid on;
-    title('Mean Detected Pressure ± Std Dev', 'FontSize', 14);
-    ylabel('Pressure (mmHg)', 'FontSize', 12);
+    title('Mean Detected Pressure +/- Std Dev','FontSize',14);
+    ylabel('Pressure (mmHg)','FontSize',12);
     shortLabels = shortenDetectorNames(allDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels,'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Better y-axis limits that show the variation
-    minVal = min(meanPressures - stdPressures, [], 'omitnan');
-    maxVal = max(meanPressures + stdPressures, [], 'omitnan');
+    set(gca,'XTick',1:numDetectors,'XTickLabel',shortLabels, ...
+        'TickLabelInterpreter','none','XTickLabelRotation',90,'FontSize',8);
+    minVal = min(meanPressures - stdPressures,[],'omitnan');
+    maxVal = max(meanPressures + stdPressures,[],'omitnan');
     if ~isnan(minVal) && ~isnan(maxVal) && maxVal > minVal
         yRange = maxVal - minVal;
-        ylim([max(0, minVal - 0.1*yRange), maxVal + 0.1*yRange]);
+        ylim([max(0,minVal-0.1*yRange), maxVal+0.1*yRange]);
     end
-    
-    % Success Rate (full width bottom)
+
     axes(ax4);
-    successRate = sum(~isnan(detectionPressures), 2) / numRuns * 100;
+    successRate = sum(~isnan(detectionPressures),2) / numRuns * 100;
     bar(successRate);
     grid on;
-    title('Detection Success Rate', 'FontSize', 14);
-    ylabel('Success Rate (%)', 'FontSize', 12);
-    shortLabels = shortenDetectorNames(allDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels,'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
+    title('Detection Success Rate','FontSize',14);
+    ylabel('Success Rate (%)','FontSize',12);
+    set(gca,'XTick',1:numDetectors,'XTickLabel',shortLabels, ...
+        'TickLabelInterpreter','none','XTickLabelRotation',90,'FontSize',8);
     ylim([0 110]);
 end
 
-function createGroundTruthTab(parentTab, allRuns, allDetectors)
-    % Filter to runs with ground truth
-    runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
-    numRuns = length(runsWithGT);
+% -------------------------------------------------------------------------
+%  Core ranking engine — builds all/ENV/DRV pages for one reference type
+% -------------------------------------------------------------------------
+function createRankingTabGroup(tabGroup, refRuns, allDetectors, ...
+        errorField, absErrorField, groupLabel, tabPrefix)
+
     numDetectors = length(allDetectors);
-    
-    if numRuns == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No runs with ground truth data found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
-        return;
-    end
-    
-    % Extract errors
-    errors = nan(numDetectors, numRuns);
+    numRuns      = length(refRuns);
+    if numDetectors == 0 || numRuns == 0; return; end
+
+    errors    = nan(numDetectors, numRuns);
     absErrors = nan(numDetectors, numRuns);
-    
     for i = 1:numRuns
         for j = 1:numDetectors
             detName = allDetectors{j};
-            if isKey(runsWithGT{i}.detections, detName)
-                detection = runsWithGT{i}.detections(detName);
-                if detection.detected
-                    errors(j, i) = detection.error;
-                    absErrors(j, i) = detection.absError;
+            if isKey(refRuns{i}.detections, detName)
+                det = refRuns{i}.detections(detName);
+                if det.detected && isfield(det, errorField) && ~isnan(det.(errorField))
+                    errors(j,i)    = det.(errorField);
+                    absErrors(j,i) = det.(absErrorField);
                 end
             end
         end
     end
-    
-    % Calculate statistics
-    meanError = mean(errors, 2, 'omitnan');
-    stdError = std(errors, 0, 2, 'omitnan');
+
     meanAbsError = mean(absErrors, 2, 'omitnan');
-    stdAbsError = std(absErrors, 0, 2, 'omitnan');
-    
-    % Create axes
-    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.38, 0.32]);
-    ax4 = axes('Parent', parentTab, 'Position', [0.56, 0.63, 0.38, 0.32]);
-    
-    % Plot 1: Absolute error (top)
-    axes(ax2);
-    errorbar(1:numDetectors, meanAbsError, stdAbsError, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
-    grid on;
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Mean Absolute Error from Ground Truth ± Std Dev', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(allDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Plot 2: Ranking by absolute error (bottom)
-    axes(ax4);
+    stdAbsError  = std( absErrors, 0, 2, 'omitnan');
+    meanError    = mean(errors,    2, 'omitnan');
+
     [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
-    sortedDetectors = allDetectors(sortIdx);
-    sortedStdAbsError = stdAbsError(sortIdx);
-    
-    bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
-    hold on;
-    errorbar(1:numDetectors, sortedMAE, sortedStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
-    hold off;
-    
-    grid on;
-    xlabel('Detector (Ranked)', 'FontSize', 12);
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Detector Ranking by Accuracy', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(sortedDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Print summary
-    fprintf('\n=== GROUND TRUTH ANALYSIS SUMMARY ===\n');
-    fprintf('Analyzed %d runs with ground truth data\n\n', numRuns);
-    fprintf('Detector Rankings by Mean Absolute Error:\n');
-    for i = 1:min(numDetectors, 10)
+    sortedDetectors      = allDetectors(sortIdx);
+    sortedStd            = stdAbsError(sortIdx);
+
+    detectorsPerPage = 75;
+
+    % --- All detectors ---
+    numPages = ceil(numDetectors / detectorsPerPage);
+    fprintf('\n=== %s ANALYSIS SUMMARY ===\n', upper(groupLabel));
+    fprintf('Runs: %d | Detectors: %d | Pages: %d\n\n', numRuns, numDetectors, numPages);
+
+    for pageNum = 1:numPages
+        s = (pageNum-1)*detectorsPerPage + 1;
+        e = min(pageNum*detectorsPerPage, numDetectors);
+        if numPages == 1
+            tabName = sprintf('%s Analysis', groupLabel);
+        else
+            tabName = sprintf('%s Analysis (Rank %d-%d)', tabPrefix, s, e);
+        end
+        aTab = uitab(tabGroup, 'Title', tabName);
+        buildRankingPage(aTab, sortedDetectors(s:e), sortedMAE(s:e), sortedStd(s:e), ...
+            groupLabel, s, e);
+    end
+
+    % --- ENV-only ---
+    envMask      = startsWith(sortedDetectors, 'ENV_');
+    envDetectors = sortedDetectors(envMask);
+    envMAE       = sortedMAE(envMask);
+    envStd       = sortedStd(envMask);
+    if ~isempty(envDetectors)
+        numENVPages = ceil(length(envDetectors) / detectorsPerPage);
+        for pageNum = 1:numENVPages
+            s = (pageNum-1)*detectorsPerPage + 1;
+            e = min(pageNum*detectorsPerPage, length(envDetectors));
+            if numENVPages == 1
+                tabName = sprintf('%s ENV Detectors', tabPrefix);
+            else
+                tabName = sprintf('%s ENV (Rank %d-%d)', tabPrefix, s, e);
+            end
+            aTab = uitab(tabGroup, 'Title', tabName);
+            buildRankingPage(aTab, envDetectors(s:e), envMAE(s:e), envStd(s:e), ...
+                [groupLabel ' — ENV only'], s, e);
+        end
+    end
+
+    % --- DRV-only ---
+    drvMask      = startsWith(sortedDetectors, 'DRV_');
+    drvDetectors = sortedDetectors(drvMask);
+    drvMAE       = sortedMAE(drvMask);
+    drvStd       = sortedStd(drvMask);
+    if ~isempty(drvDetectors)
+        numDRVPages = ceil(length(drvDetectors) / detectorsPerPage);
+        for pageNum = 1:numDRVPages
+            s = (pageNum-1)*detectorsPerPage + 1;
+            e = min(pageNum*detectorsPerPage, length(drvDetectors));
+            if numDRVPages == 1
+                tabName = sprintf('%s DRV Detectors', tabPrefix);
+            else
+                tabName = sprintf('%s DRV (Rank %d-%d)', tabPrefix, s, e);
+            end
+            aTab = uitab(tabGroup, 'Title', tabName);
+            buildRankingPage(aTab, drvDetectors(s:e), drvMAE(s:e), drvStd(s:e), ...
+                [groupLabel ' — DRV only'], s, e);
+        end
+    end
+
+    % Console top-20
+    fprintf('Top 20 Rankings by MAE:\n');
+    for i = 1:min(20, numDetectors)
         idx = sortIdx(i);
-        fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
+        fprintf('%2d. %s: MAE=%.2f+/-%.2f mmHg, Bias=%.2f mmHg\n', ...
             i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
     end
     fprintf('\n');
 end
 
+% -------------------------------------------------------------------------
+function buildRankingPage(parentTab, pageDetectors, pageMAE, pageStd, groupLabel, startIdx, endIdx)
+    numInPage   = length(pageDetectors);
+    shortLabels = shortenDetectorNames(pageDetectors);
+
+    % Top: errorbar
+    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
+    axes(ax1);
+    errorbar(1:numInPage, pageMAE, pageStd, 'o-', 'LineStyle','none', ...
+        'LineWidth',2,'MarkerSize',8,'Color',[0.8 0.2 0.2]);
+    grid on;
+    ylabel('Mean Absolute Error (mmHg)','FontSize',12);
+    title(sprintf('MAE from %s +/- Std Dev (Rank %d-%d)', groupLabel, startIdx, endIdx), ...
+        'FontSize',13);
+    set(gca,'XTick',1:numInPage,'XTickLabel',shortLabels, ...
+        'TickLabelInterpreter','none','XTickLabelRotation',90,'FontSize',8);
+
+    % Bottom: bar + error bars
+    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
+    axes(ax2);
+    bar(pageMAE, 'FaceColor',[0.3 0.5 0.8]);
+    hold on;
+    errorbar(1:numInPage, pageMAE, pageStd, 'k.','LineWidth',1.5,'CapSize',8);
+    hold off;
+    grid on;
+    xlabel('Detector (Ranked by MAE)','FontSize',12);
+    ylabel('Mean Absolute Error (mmHg)','FontSize',12);
+    title(sprintf('Detector Ranking — %s (Rank %d-%d)', groupLabel, startIdx, endIdx), ...
+        'FontSize',13);
+    set(gca,'XTick',1:numInPage,'XTickLabel',shortLabels, ...
+        'TickLabelInterpreter','none','XTickLabelRotation',90,'FontSize',8);
+end
+
+% -------------------------------------------------------------------------
+function createGroundTruthTabGroup(tabGroup, allRuns, allDetectors)
+    runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
+    if isempty(runsWithGT); return; end
+    createRankingTabGroup(tabGroup, runsWithGT, allDetectors, ...
+        'error', 'absError', 'Ground Truth', 'GT');
+end
+
+function createSBPReferenceTabGroup(tabGroup, allRuns, allDetectors)
+    runsWithSBP = allRuns(cellfun(@(r) r.hasSBPReference, allRuns));
+    if isempty(runsWithSBP); return; end
+    createRankingTabGroup(tabGroup, runsWithSBP, allDetectors, ...
+        'sbpError', 'sbpAbsError', 'SBP Reference', 'SBP');
+end
+
+% -------------------------------------------------------------------------
 function createBLAnalysisTab(parentTab, allRuns, allDetectors)
-    blDetectors = allDetectors(startsWith(allDetectors, 'BL_'));
-    
+    blDetectors = allDetectors(startsWith(allDetectors,'BL_'));
     if isempty(blDetectors)
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No BL detectors found in the data.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No BL detectors found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
         return;
     end
-    
-    numBL = length(blDetectors);
-    params = zeros(numBL, 3);
-    validDetectors = true(numBL, 1);
-    
+
+    numBL  = length(blDetectors);
+    params = zeros(numBL,3);
+    valid  = true(numBL,1);
     for i = 1:numBL
-        % Updated regex to handle underscore-separated decimals
-        tokens = regexp(blDetectors{i}, 'BL_W(\d+)_T(\d+)\.(\d+)_D(\d+)', 'tokens');
-        if ~isempty(tokens) && ~isempty(tokens{1})
-            W = str2double(tokens{1}{1});
-            T_integer = str2double(tokens{1}{2});
-            T_decimal = str2double(tokens{1}{3});
-            D = str2double(tokens{1}{4});
-            
-            % Convert T from format to decimal (e.g., 1.0, 2.5, 3.0)
-            T = T_integer + T_decimal / 10;
-            
-            params(i, :) = [W, T, D];
+        tok = regexp(blDetectors{i},'BL_W(\d+)_T(\d+)\.(\d+)_D(\d+)','tokens');
+        if ~isempty(tok) && ~isempty(tok{1})
+            W = str2double(tok{1}{1});
+            T = str2double(tok{1}{2}) + str2double(tok{1}{3})/10;
+            D = str2double(tok{1}{4});
+            params(i,:) = [W,T,D];
             fprintf('Parsed %s -> W=%d, T=%.1f, D=%d\n', blDetectors{i}, W, T, D);
         else
-            validDetectors(i) = false;
-            fprintf('Warning: Could not parse detector name: %s\n', blDetectors{i});
+            valid(i) = false;
+            fprintf('Warning: Could not parse detector: %s\n', blDetectors{i});
         end
     end
-    
-    % Filter to only valid detectors
-    blDetectors = blDetectors(validDetectors);
-    params = params(validDetectors, :);
-    numBL = length(blDetectors);
-    
+    blDetectors = blDetectors(valid); params = params(valid,:); numBL = length(blDetectors);
     if numBL == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No BL detectors with valid naming format found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No BL detectors with valid format found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
         return;
     end
-    
     fprintf('\nSuccessfully parsed %d BL detectors\n', numBL);
-    
-    numRuns = length(allRuns);
+
+    numRuns      = length(allRuns);
     detPressures = nan(numBL, numRuns);
     for i = 1:numRuns
         for j = 1:numBL
             detName = blDetectors{j};
             if isKey(allRuns{i}.detections, detName)
-                detection = allRuns{i}.detections(detName);
-                if detection.detected
-                    detPressures(j, i) = detection.pressure;
-                end
+                det = allRuns{i}.detections(detName);
+                if det.detected; detPressures(j,i) = det.pressure; end
             end
         end
     end
-    
-    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.38, 0.32]);
-    ax2 = axes('Parent', parentTab, 'Position', [0.56, 0.63, 0.38, 0.32]);
-    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.38, 0.32]);
-    
-    % Window Size effect
-    axes(ax1);
-    uniqueW = unique(params(:, 1));
-    meanByW = zeros(length(uniqueW), 1);
-    stdByW = zeros(length(uniqueW), 1);
-    for i = 1:length(uniqueW)
-        idx = params(:, 1) == uniqueW(i);
-        meanByW(i) = mean(detPressures(idx, :), 'all', 'omitnan');
-        stdByW(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
-    end
-    errorbar(uniqueW, meanByW, stdByW, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on; xlabel('Window Size (W)', 'FontSize', 12);
-    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
-    title('Effect of Window Size', 'FontSize', 14);
-    
-    % Threshold effect
-    axes(ax2);
-    uniqueT = unique(params(:, 2));
-    meanByT = zeros(length(uniqueT), 1);
-    stdByT = zeros(length(uniqueT), 1);
-    for i = 1:length(uniqueT)
-        idx = params(:, 2) == uniqueT(i);
-        meanByT(i) = mean(detPressures(idx, :), 'all', 'omitnan');
-        stdByT(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
-    end
-    errorbar(uniqueT, meanByT, stdByT, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on; xlabel('Threshold Multiplier (T)', 'FontSize', 12);
-    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
-    title('Effect of Threshold', 'FontSize', 14);
-    
-    % Minimum Deviation effect
-    axes(ax3);
-    uniqueD = unique(params(:, 3));
-    meanByD = zeros(length(uniqueD), 1);
-    stdByD = zeros(length(uniqueD), 1);
-    for i = 1:length(uniqueD)
-        idx = params(:, 3) == uniqueD(i);
-        meanByD(i) = mean(detPressures(idx, :), 'all', 'omitnan');
-        stdByD(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
-    end
-    errorbar(uniqueD, meanByD, stdByD, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on; xlabel('Minimum Deviation (D)', 'FontSize', 12);
-    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
-    title('Effect of Minimum Deviation', 'FontSize', 14);
+
+    ax1 = axes('Parent',parentTab,'Position',[0.08,0.63,0.38,0.32]);
+    ax2 = axes('Parent',parentTab,'Position',[0.56,0.63,0.38,0.32]);
+    ax3 = axes('Parent',parentTab,'Position',[0.08,0.18,0.38,0.32]);
+    plotParamEffect(ax1, params(:,1), detPressures, 'Window Size (W)',       'Effect of Window Size');
+    plotParamEffect(ax2, params(:,2), detPressures, 'Threshold Multiplier (T)', 'Effect of Threshold');
+    plotParamEffect(ax3, params(:,3), detPressures, 'Minimum Deviation (D)', 'Effect of Min Deviation');
 end
 
+% -------------------------------------------------------------------------
 function createDRVAnalysisTab(parentTab, allRuns, allDetectors)
-    drvDetectors = allDetectors(startsWith(allDetectors, 'DRV_'));
+    drvDetectors = allDetectors(startsWith(allDetectors,'DRV_'));
     if isempty(drvDetectors)
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No DRV detectors found in the data.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No DRV detectors found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
         return;
     end
-    
+
     numDRV = length(drvDetectors);
-    params = zeros(numDRV, 2);
+    params = zeros(numDRV,2);
     for i = 1:numDRV
-        tokens = regexp(drvDetectors{i}, 'DRV_W(\d+)_T([\d.]+)', 'tokens');
-        if ~isempty(tokens)
-            params(i, :) = [str2double(tokens{1}{1}), str2double(tokens{1}{2})];
+        tok = regexp(drvDetectors{i},'DRV_W(\d+)_T([\d.]+)','tokens');
+        if ~isempty(tok)
+            params(i,:) = [str2double(tok{1}{1}), str2double(tok{1}{2})];
         end
     end
-    
-    numRuns = length(allRuns);
+
+    numRuns      = length(allRuns);
     detPressures = nan(numDRV, numRuns);
     for i = 1:numRuns
         for j = 1:numDRV
             detName = drvDetectors{j};
             if isKey(allRuns{i}.detections, detName)
-                detection = allRuns{i}.detections(detName);
-                detPressures(j, i) = detection.pressure;
+                det = allRuns{i}.detections(detName);
+                if det.detected; detPressures(j,i) = det.pressure; end
             end
         end
     end
-    
-    ax1 = axes('Parent', parentTab, 'Position', [0.1, 0.3, 0.35, 0.5]);
-    ax2 = axes('Parent', parentTab, 'Position', [0.55, 0.3, 0.35, 0.5]);
-    
-    axes(ax1);
-    uniqueW = unique(params(:, 1));
-    meanByW = zeros(length(uniqueW), 1);
-    stdByW = zeros(length(uniqueW), 1);
-    for i = 1:length(uniqueW)
-        idx = params(:, 1) == uniqueW(i);
-        meanByW(i) = mean(detPressures(idx, :), 'all', 'omitnan');
-        stdByW(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
-    end
-    errorbar(uniqueW, meanByW, stdByW, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on; xlabel('Window Size (W)', 'FontSize', 12);
-    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
-    title('Effect of Window Size', 'FontSize', 14);
-    
-    axes(ax2);
-    uniqueT = unique(params(:, 2));
-    meanByT = zeros(length(uniqueT), 1);
-    stdByT = zeros(length(uniqueT), 1);
-    for i = 1:length(uniqueT)
-        idx = params(:, 2) == uniqueT(i);
-        meanByT(i) = mean(detPressures(idx, :), 'all', 'omitnan');
-        stdByT(i) = std(detPressures(idx, :), 0, 'all', 'omitnan');
-    end
-    errorbar(uniqueT, meanByT, stdByT, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on; xlabel('Threshold (T)', 'FontSize', 12);
-    ylabel('Mean Detected Pressure (mmHg)', 'FontSize', 12);
-    title('Effect of Threshold', 'FontSize', 14);
+
+    ax1 = axes('Parent',parentTab,'Position',[0.1,0.3,0.35,0.5]);
+    ax2 = axes('Parent',parentTab,'Position',[0.55,0.3,0.35,0.5]);
+    plotParamEffect(ax1, params(:,1), detPressures, 'Window Size (W)', 'Effect of Window Size');
+    plotParamEffect(ax2, params(:,2), detPressures, 'Threshold (T)',    'Effect of Threshold');
 end
 
-function shortLabels = shortenDetectorNames(detectors)
-    shortLabels = cell(size(detectors));
-    for i = 1:length(detectors)
-        label = detectors{i};
-        % Remove common prefixes
-        label = strrep(label, 'BL_', 'BL');
-        label = strrep(label, 'DRV_', 'DRV');
-        % Replace underscores with commas
-        label = strrep(label, '_', ',');
-        shortLabels{i} = label;
+% -------------------------------------------------------------------------
+function createENVAnalysisTab(parentTab, allRuns, allDetectors)
+    envDetectors = allDetectors(startsWith(allDetectors,'ENV_'));
+    if isempty(envDetectors)
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No ENV detectors found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
+        return;
     end
-end
 
-function createSBPReferenceTab(parentTab, allRuns, allDetectors)
-    % Filter to runs with SBP reference
-    runsWithSBP = allRuns(cellfun(@(r) r.hasSBPReference, allRuns));
-    numRuns = length(runsWithSBP);
-    numDetectors = length(allDetectors);
-    
-    if numRuns == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No runs with SBP reference in filename found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
-        return;
-    end
-    
-    % Extract errors
-    errors = nan(numDetectors, numRuns);
-    absErrors = nan(numDetectors, numRuns);
-    
-    for i = 1:numRuns
-        for j = 1:numDetectors
-            detName = allDetectors{j};
-            if isKey(runsWithSBP{i}.detections, detName)
-                detection = runsWithSBP{i}.detections(detName);
-                if detection.detected
-                    errors(j, i) = detection.sbpError;
-                    absErrors(j, i) = detection.sbpAbsError;
-                end
-            end
-        end
-    end
-    
-    % Calculate statistics
-    meanError = mean(errors, 2, 'omitnan');
-    stdError = std(errors, 0, 2, 'omitnan');
-    meanAbsError = mean(absErrors, 2, 'omitnan');
-    stdAbsError = std(absErrors, 0, 2, 'omitnan');
-    
-    % Create axes - only 2 plots now
-    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.63, 0.86, 0.32]);
-    ax4 = axes('Parent', parentTab, 'Position', [0.08, 0.18, 0.86, 0.32]);
-    
-    % Plot 1: Absolute error (top)
-    axes(ax2);
-    errorbar(1:numDetectors, meanAbsError, stdAbsError, 'o-', 'LineStyle', 'none', 'LineWidth', 2, 'MarkerSize', 8, 'Color', [0.8 0.2 0.2]);
-    grid on;
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Mean Absolute Error from SBP Reference ± Std Dev', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(allDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Plot 2: Ranking by absolute error (bottom)
-    axes(ax4);
-    [sortedMAE, sortIdx] = sort(meanAbsError, 'ascend');
-    sortedDetectors = allDetectors(sortIdx);
-    sortedStdAbsError = stdAbsError(sortIdx);
-    
-    bar(sortedMAE, 'FaceColor', [0.3 0.5 0.8]);
-    hold on;
-    errorbar(1:numDetectors, sortedMAE, sortedStdAbsError, 'k.', 'LineWidth', 1.5, 'CapSize', 8);
-    hold off;
-    
-    grid on;
-    xlabel('Detector (Ranked)', 'FontSize', 12);
-    ylabel('Mean Absolute Error (mmHg)', 'FontSize', 12);
-    title('Detector Ranking by Accuracy (vs SBP Reference)', 'FontSize', 14);
-    shortLabels = shortenDetectorNames(sortedDetectors);
-    set(gca, 'XTick', 1:numDetectors, 'XTickLabel', shortLabels, 'TickLabelInterpreter', 'none', 'XTickLabelRotation', 90, 'FontSize', 8);
-    
-    % Print summary
-    fprintf('\n=== SBP REFERENCE ANALYSIS SUMMARY ===\n');
-    fprintf('Analyzed %d runs with SBP reference in filename\n\n', numRuns);
-    fprintf('Detector Rankings by Mean Absolute Error:\n');
-    for i = 1:min(numDetectors, 10)
-        idx = sortIdx(i);
-        fprintf('%2d. %s: MAE = %.2f ± %.2f mmHg, Bias = %.2f mmHg\n', ...
-            i, allDetectors{idx}, meanAbsError(idx), stdAbsError(idx), meanError(idx));
-    end
-    fprintf('\n');
-end
-
-function createBLAnalysisTab_v2(parentTab, allRuns, allDetectors)
-    % Enhanced BL Analysis with Error Statistics
-    
-    blDetectors = allDetectors(startsWith(allDetectors, 'BL_'));
-    
-    if isempty(blDetectors)
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No BL detectors found in the data.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
-        return;
-    end
-    
-    % Filter to runs with ground truth
-    runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
-    numRunsGT = length(runsWithGT);
-    
-    if numRunsGT == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No runs with ground truth data found for error analysis.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
-        return;
-    end
-    
-    numBL = length(blDetectors);
-    params = zeros(numBL, 3);
-    validDetectors = true(numBL, 1);
-    
-    % Parse detector parameters
-    for i = 1:numBL
-        tokens = regexp(blDetectors{i}, 'BL_W(\d+)_T(\d+)\.(\d+)_D(\d+)', 'tokens');
-        if ~isempty(tokens) && ~isempty(tokens{1})
-            W = str2double(tokens{1}{1});
-            T_integer = str2double(tokens{1}{2});
-            T_decimal = str2double(tokens{1}{3});
-            D = str2double(tokens{1}{4});
-            T = T_integer + T_decimal / 10;
-            params(i, :) = [W, T, D];
+    numENV = length(envDetectors);
+    params = nan(numENV, 2);   % [W, T]
+    valid  = true(numENV, 1);
+    for i = 1:numENV
+        tok = regexp(envDetectors{i},'ENV_W(\d+)_T([\d.]+)','tokens');
+        if ~isempty(tok)
+            params(i,:) = [str2double(tok{1}{1}), str2double(tok{1}{2})];
         else
-            validDetectors(i) = false;
+            tok2 = regexp(envDetectors{i},'ENV_W(\d+)','tokens');
+            if ~isempty(tok2)
+                params(i,1) = str2double(tok2{1}{1});
+            else
+                valid(i) = false;
+                fprintf('Warning: Could not parse ENV detector: %s\n', envDetectors{i});
+            end
         end
     end
-    
-    % Filter to only valid detectors
-    blDetectors = blDetectors(validDetectors);
-    params = params(validDetectors, :);
-    numBL = length(blDetectors);
-    
-    if numBL == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No BL detectors with valid naming format found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+    envDetectors = envDetectors(valid); params = params(valid,:); numENV = length(envDetectors);
+
+    if numENV == 0
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No ENV detectors with valid format found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
         return;
     end
-    
+
+    numRuns      = length(allRuns);
+    detPressures = nan(numENV, numRuns);
+    for i = 1:numRuns
+        for j = 1:numENV
+            detName = envDetectors{j};
+            if isKey(allRuns{i}.detections, detName)
+                det = allRuns{i}.detections(detName);
+                if det.detected; detPressures(j,i) = det.pressure; end
+            end
+        end
+    end
+
+    hasT = any(~isnan(params(:,2)));
+    if hasT
+        ax1 = axes('Parent',parentTab,'Position',[0.1,0.3,0.35,0.5]);
+        ax2 = axes('Parent',parentTab,'Position',[0.55,0.3,0.35,0.5]);
+        plotParamEffect(ax1, params(:,1), detPressures, 'Window Size (W)', 'Effect of Window Size');
+        plotParamEffect(ax2, params(:,2), detPressures, 'Threshold (T)',    'Effect of Threshold');
+    else
+        ax1 = axes('Parent',parentTab,'Position',[0.15,0.3,0.7,0.5]);
+        plotParamEffect(ax1, params(:,1), detPressures, 'Window Size (W)', 'Effect of Window Size');
+    end
+end
+
+% -------------------------------------------------------------------------
+function plotParamEffect(ax, paramVec, detPressures, xlabelStr, titleStr)
+    axes(ax);
+    uniqueVals = unique(paramVec(~isnan(paramVec)));
+    meanVals   = zeros(length(uniqueVals),1);
+    stdVals    = zeros(length(uniqueVals),1);
+    for i = 1:length(uniqueVals)
+        idx         = paramVec == uniqueVals(i);
+        meanVals(i) = mean(detPressures(idx,:),'all','omitnan');
+        stdVals(i)  = std( detPressures(idx,:),0,  'all','omitnan');
+    end
+    errorbar(uniqueVals, meanVals, stdVals, 'o-','LineStyle','none','LineWidth',2,'MarkerSize',8);
+    grid on;
+    xlabel(xlabelStr,'FontSize',12);
+    ylabel('Mean Detected Pressure (mmHg)','FontSize',12);
+    title(titleStr,'FontSize',14);
+end
+
+% -------------------------------------------------------------------------
+function createBLAnalysisTab_v2(parentTab, allRuns, allDetectors)
+    blDetectors = allDetectors(startsWith(allDetectors,'BL_'));
+    if isempty(blDetectors)
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No BL detectors found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
+        return;
+    end
+
+    runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
+    if isempty(runsWithGT)
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No runs with ground truth found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
+        return;
+    end
+    numRunsGT = length(runsWithGT);
+
+    numBL  = length(blDetectors);
+    params = zeros(numBL,3);
+    valid  = true(numBL,1);
+    for i = 1:numBL
+        tok = regexp(blDetectors{i},'BL_W(\d+)_T(\d+)\.(\d+)_D(\d+)','tokens');
+        if ~isempty(tok) && ~isempty(tok{1})
+            W = str2double(tok{1}{1});
+            T = str2double(tok{1}{2}) + str2double(tok{1}{3})/10;
+            D = str2double(tok{1}{4});
+            params(i,:) = [W,T,D];
+        else
+            valid(i) = false;
+        end
+    end
+    blDetectors = blDetectors(valid); params = params(valid,:); numBL = length(blDetectors);
+    if numBL == 0
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No BL detectors with valid format found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
+        return;
+    end
     fprintf('\nSuccessfully parsed %d BL detectors for error analysis\n', numBL);
-    
-    % Extract errors from ground truth runs
+
     errors = nan(numBL, numRunsGT);
-    
     for i = 1:numRunsGT
         for j = 1:numBL
             detName = blDetectors{j};
             if isKey(runsWithGT{i}.detections, detName)
-                detection = runsWithGT{i}.detections(detName);
-                if detection.detected
-                    errors(j, i) = detection.error;
-                end
+                det = runsWithGT{i}.detections(detName);
+                if det.detected; errors(j,i) = det.error; end
             end
         end
     end
-    
-    % Create axes - 3 plots stacked vertically
-    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.68, 0.86, 0.26]);
-    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.38, 0.86, 0.26]);
-    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.08, 0.86, 0.26]);
-    
-    % --- Window Size Analysis ---
-    uniqueW = sort(unique(params(:, 1)));
-    meanErrByW = zeros(length(uniqueW), 1);
-    stdErrByW = zeros(length(uniqueW), 1);
-    
-    for i = 1:length(uniqueW)
-        idx = params(:, 1) == uniqueW(i);
-        meanErrByW(i) = mean(errors(idx, :), 'all', 'omitnan');
-        stdErrByW(i) = std(errors(idx, :), 0, 'all', 'omitnan');
-    end
-    
-    % Plot Window Size - Mean Error
-    axes(ax1);
-    errorbar(uniqueW, meanErrByW, stdErrByW, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on;
-    xlabel('Window Size (W)', 'FontSize', 11);
-    ylabel('Mean Error (mmHg)', 'FontSize', 11);
-    title('Window Size: Mean Error ± SD', 'FontSize', 12);
-    yline(0, 'k--', 'LineWidth', 1);
-    
-    % --- Threshold Analysis ---
-    uniqueT = sort(unique(params(:, 2)));
-    meanErrByT = zeros(length(uniqueT), 1);
-    stdErrByT = zeros(length(uniqueT), 1);
-    
-    for i = 1:length(uniqueT)
-        idx = params(:, 2) == uniqueT(i);
-        meanErrByT(i) = mean(errors(idx, :), 'all', 'omitnan');
-        stdErrByT(i) = std(errors(idx, :), 0, 'all', 'omitnan');
-    end
-    
-    % Plot Threshold - Mean Error
-    axes(ax2);
-    errorbar(uniqueT, meanErrByT, stdErrByT, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on;
-    xlabel('Threshold Multiplier (T)', 'FontSize', 11);
-    ylabel('Mean Error (mmHg)', 'FontSize', 11);
-    title('Threshold: Mean Error ± SD', 'FontSize', 12);
-    yline(0, 'k--', 'LineWidth', 1);
-    
-    % --- Minimum Deviation Analysis ---
-    uniqueD = sort(unique(params(:, 3)));
-    meanErrByD = zeros(length(uniqueD), 1);
-    stdErrByD = zeros(length(uniqueD), 1);
-    
-    for i = 1:length(uniqueD)
-        idx = params(:, 3) == uniqueD(i);
-        meanErrByD(i) = mean(errors(idx, :), 'all', 'omitnan');
-        stdErrByD(i) = std(errors(idx, :), 0, 'all', 'omitnan');
-    end
-    
-    % Plot Minimum Deviation - Mean Error
-    axes(ax3);
-    errorbar(uniqueD, meanErrByD, stdErrByD, 'o-', 'LineWidth', 2, 'MarkerSize', 8);
-    grid on;
-    xlabel('Minimum Deviation (D)', 'FontSize', 11);
-    ylabel('Mean Error (mmHg)', 'FontSize', 11);
-    title('Min Deviation: Mean Error ± SD', 'FontSize', 12);
-    yline(0, 'k--', 'LineWidth', 1);
-    
-    % Print summary statistics
+
+    ax1 = axes('Parent',parentTab,'Position',[0.08,0.68,0.86,0.26]);
+    ax2 = axes('Parent',parentTab,'Position',[0.08,0.38,0.86,0.26]);
+    ax3 = axes('Parent',parentTab,'Position',[0.08,0.08,0.86,0.26]);
+    plotErrorEffect(ax1, params(:,1), errors, 'Window Size (W)',         'Window Size: Mean Error +/- SD');
+    plotErrorEffect(ax2, params(:,2), errors, 'Threshold Multiplier (T)','Threshold: Mean Error +/- SD');
+    plotErrorEffect(ax3, params(:,3), errors, 'Minimum Deviation (D)',   'Min Deviation: Mean Error +/- SD');
+
     fprintf('\n=== BL PARAMETER ERROR ANALYSIS ===\n');
-    fprintf('Analyzed %d BL detectors across %d runs with ground truth\n\n', numBL, numRunsGT);
-    
-    fprintf('Window Size Effects:\n');
-    for i = 1:length(uniqueW)
-        fprintf('  W=%d: Mean Error = %.2f ± %.2f mmHg\n', ...
-            uniqueW(i), meanErrByW(i), stdErrByW(i));
-    end
-    
-    fprintf('\nThreshold Effects:\n');
-    for i = 1:length(uniqueT)
-        fprintf('  T=%.1f: Mean Error = %.2f ± %.2f mmHg\n', ...
-            uniqueT(i), meanErrByT(i), stdErrByT(i));
-    end
-    
-    fprintf('\nMinimum Deviation Effects:\n');
-    for i = 1:length(uniqueD)
-        fprintf('  D=%d: Mean Error = %.2f ± %.2f mmHg\n', ...
-            uniqueD(i), meanErrByD(i), stdErrByD(i));
-    end
-    fprintf('\n');
+    fprintf('Analyzed %d BL detectors across %d runs with ground truth\n', numBL, numRunsGT);
 end
 
+% -------------------------------------------------------------------------
+function plotErrorEffect(ax, paramVec, errors, xlabelStr, titleStr)
+    axes(ax);
+    uniqueVals = sort(unique(paramVec));
+    meanVals   = zeros(length(uniqueVals),1);
+    stdVals    = zeros(length(uniqueVals),1);
+    for i = 1:length(uniqueVals)
+        idx         = paramVec == uniqueVals(i);
+        meanVals(i) = mean(errors(idx,:),'all','omitnan');
+        stdVals(i)  = std( errors(idx,:),0,  'all','omitnan');
+    end
+    errorbar(uniqueVals, meanVals, stdVals, 'o-','LineWidth',2,'MarkerSize',8);
+    grid on;
+    xlabel(xlabelStr,'FontSize',11);
+    ylabel('Mean Error (mmHg)','FontSize',11);
+    title(titleStr,'FontSize',12);
+    yline(0,'k--','LineWidth',1);
+end
+
+% -------------------------------------------------------------------------
 function createHeartRateAnalysisTab(parentTab, allRuns, allDetectors)
-    % Heart Rate vs Parameter Analysis with Error Heatmap
-    
-    blDetectors = allDetectors(startsWith(allDetectors, 'BL_'));
-    
+    blDetectors = allDetectors(startsWith(allDetectors,'BL_'));
     if isempty(blDetectors)
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No BL detectors found in the data.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No BL detectors found.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
         return;
     end
-    
-    % Filter to runs with both ground truth and BPM
-    runsWithBoth = allRuns(cellfun(@(r) r.hasGroundTruth && isfield(r, 'hasBPM') && r.hasBPM, allRuns));
-    
+
+    runsWithBoth = allRuns(cellfun(@(r) r.hasGroundTruth && isfield(r,'hasBPM') && r.hasBPM, allRuns));
     if isempty(runsWithBoth)
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No runs with both ground truth and BPM data found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        annotation(parentTab,'textbox',[0.3,0.4,0.4,0.2], ...
+            'String','No runs with both ground truth and BPM data.','FontSize',14, ...
+            'HorizontalAlignment','center','EdgeColor','none');
         return;
     end
-    
-    numBL = length(blDetectors);
-    params = zeros(numBL, 3);
-    validDetectors = true(numBL, 1);
-    
-    % Parse detector parameters
+
+    numBL  = length(blDetectors);
+    params = zeros(numBL,3);
+    valid  = true(numBL,1);
     for i = 1:numBL
-        tokens = regexp(blDetectors{i}, 'BL_W(\d+)_T(\d+)\.(\d+)_D(\d+)', 'tokens');
-        if ~isempty(tokens) && ~isempty(tokens{1})
-            W = str2double(tokens{1}{1});
-            T_integer = str2double(tokens{1}{2});
-            T_decimal = str2double(tokens{1}{3});
-            D = str2double(tokens{1}{4});
-            T = T_integer + T_decimal / 10;
-            params(i, :) = [W, T, D];
+        tok = regexp(blDetectors{i},'BL_W(\d+)_T(\d+)\.(\d+)_D(\d+)','tokens');
+        if ~isempty(tok) && ~isempty(tok{1})
+            W = str2double(tok{1}{1});
+            T = str2double(tok{1}{2}) + str2double(tok{1}{3})/10;
+            D = str2double(tok{1}{4});
+            params(i,:) = [W,T,D];
         else
-            validDetectors(i) = false;
+            valid(i) = false;
         end
     end
-    
-    blDetectors = blDetectors(validDetectors);
-    params = params(validDetectors, :);
-    numBL = length(blDetectors);
-    
-    if numBL == 0
-        annotation(parentTab, 'textbox', [0.3, 0.4, 0.4, 0.2], ...
-            'String', 'No BL detectors with valid naming format found.', ...
-            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
-        return;
-    end
-    
-    % Extract errors and BPM for each detector and run
+    blDetectors = blDetectors(valid); params = params(valid,:); numBL = length(blDetectors);
+    if numBL == 0; return; end
+
     numRuns = length(runsWithBoth);
-    errors = nan(numBL, numRuns);
-    bpms = zeros(1, numRuns);
-    
+    errors  = nan(numBL, numRuns);
+    bpms    = zeros(1, numRuns);
     for i = 1:numRuns
         bpms(i) = runsWithBoth{i}.bpm;
         for j = 1:numBL
             detName = blDetectors{j};
             if isKey(runsWithBoth{i}.detections, detName)
-                detection = runsWithBoth{i}.detections(detName);
-                if detection.detected
-                    errors(j, i) = detection.error;
-                end
+                det = runsWithBoth{i}.detections(detName);
+                if det.detected; errors(j,i) = det.error; end
             end
         end
     end
-    
-    % Define heart rate bins
-    minBPM = floor(min(bpms) / 5) * 5;
-    maxBPM = ceil(max(bpms) / 5) * 5;
-    bpmBins = minBPM:5:maxBPM;
-    bpmLabels = cell(1, length(bpmBins)-1);
-    for i = 1:length(bpmBins)-1
-        bpmLabels{i} = sprintf('%d-%d', bpmBins(i), bpmBins(i+1)-1);
-    end
-    
-    % Assign each run to a BPM bin
+
+    minBPM    = floor(min(bpms)/5)*5;
+    maxBPM    = ceil(max(bpms)/5)*5;
+    bpmBins   = minBPM:5:maxBPM;
+    bpmLabels = arrayfun(@(a,b) sprintf('%d-%d',a,b-1), bpmBins(1:end-1), bpmBins(2:end), ...
+        'UniformOutput',false);
     bpmBinIdx = discretize(bpms, bpmBins);
-    
-    % Get unique parameter values
-    uniqueW = sort(unique(params(:, 1)));
-    uniqueT = sort(unique(params(:, 2)));
-    uniqueD = sort(unique(params(:, 3)));
-    
-    % Create three heatmaps (W, T, D)
-    ax1 = axes('Parent', parentTab, 'Position', [0.08, 0.68, 0.86, 0.26]);
-    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.38, 0.86, 0.26]);
-    ax3 = axes('Parent', parentTab, 'Position', [0.08, 0.08, 0.86, 0.26]);
-    
-    % --- Window Size Heatmap ---
-    axes(ax1);
-    heatmapW = nan(length(uniqueW), length(bpmLabels));
-    
-    for i = 1:length(uniqueW)
-        W = uniqueW(i);
-        detIdx = find(params(:, 1) == W);
-        
-        for j = 1:length(bpmLabels)
-            runIdx = find(bpmBinIdx == j);
-            if ~isempty(runIdx) && ~isempty(detIdx)
-                errorSubset = errors(detIdx, runIdx);
-                heatmapW(i, j) = mean(abs(errorSubset(:)), 'omitnan');
-            end
-        end
-    end
-    
-    imagesc(heatmapW);
-    colormap(ax1, createErrorColormap());
-    caxis([0 20]);
-    colorbar;
-    
-    set(gca, 'XTick', 1:length(bpmLabels), 'XTickLabel', bpmLabels, 'XTickLabelRotation', 45);
-    set(gca, 'YTick', 1:length(uniqueW), 'YTickLabel', uniqueW);
-    xlabel('Heart Rate (BPM)', 'FontSize', 11);
-    ylabel('Window Size (W)', 'FontSize', 11);
-    title('Mean Absolute Error: Window Size vs Heart Rate', 'FontSize', 12);
-    
-    % Add text labels
-    for i = 1:length(uniqueW)
-        for j = 1:length(bpmLabels)
-            if ~isnan(heatmapW(i, j))
-                text(j, i, sprintf('%.1f', heatmapW(i, j)), ...
-                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
-                    'Color', getTextColor(heatmapW(i, j)));
-            end
-        end
-    end
-    
-    % --- Threshold Heatmap ---
-    axes(ax2);
-    heatmapT = nan(length(uniqueT), length(bpmLabels));
-    
-    for i = 1:length(uniqueT)
-        T = uniqueT(i);
-        detIdx = find(params(:, 2) == T);
-        
-        for j = 1:length(bpmLabels)
-            runIdx = find(bpmBinIdx == j);
-            if ~isempty(runIdx) && ~isempty(detIdx)
-                errorSubset = errors(detIdx, runIdx);
-                heatmapT(i, j) = mean(abs(errorSubset(:)), 'omitnan');
-            end
-        end
-    end
-    
-    imagesc(heatmapT);
-    colormap(ax2, createErrorColormap());
-    caxis([0 20]);
-    colorbar;
-    
-    set(gca, 'XTick', 1:length(bpmLabels), 'XTickLabel', bpmLabels, 'XTickLabelRotation', 45);
-    set(gca, 'YTick', 1:length(uniqueT), 'YTickLabel', uniqueT);
-    xlabel('Heart Rate (BPM)', 'FontSize', 11);
-    ylabel('Threshold (T)', 'FontSize', 11);
-    title('Mean Absolute Error: Threshold vs Heart Rate', 'FontSize', 12);
-    
-    % Add text labels
-    for i = 1:length(uniqueT)
-        for j = 1:length(bpmLabels)
-            if ~isnan(heatmapT(i, j))
-                text(j, i, sprintf('%.1f', heatmapT(i, j)), ...
-                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
-                    'Color', getTextColor(heatmapT(i, j)));
-            end
-        end
-    end
-    
-    % --- Minimum Deviation Heatmap ---
-    axes(ax3);
-    heatmapD = nan(length(uniqueD), length(bpmLabels));
-    
-    for i = 1:length(uniqueD)
-        D = uniqueD(i);
-        detIdx = find(params(:, 3) == D);
-        
-        for j = 1:length(bpmLabels)
-            runIdx = find(bpmBinIdx == j);
-            if ~isempty(runIdx) && ~isempty(detIdx)
-                errorSubset = errors(detIdx, runIdx);
-                heatmapD(i, j) = mean(abs(errorSubset(:)), 'omitnan');
-            end
-        end
-    end
-    
-    imagesc(heatmapD);
-    colormap(ax3, createErrorColormap());
-    caxis([0 20]);
-    colorbar;
-    
-    set(gca, 'XTick', 1:length(bpmLabels), 'XTickLabel', bpmLabels, 'XTickLabelRotation', 45);
-    set(gca, 'YTick', 1:length(uniqueD), 'YTickLabel', uniqueD);
-    xlabel('Heart Rate (BPM)', 'FontSize', 11);
-    ylabel('Minimum Deviation (D)', 'FontSize', 11);
-    title('Mean Absolute Error: Min Deviation vs Heart Rate', 'FontSize', 12);
-    
-    % Add text labels
-    for i = 1:length(uniqueD)
-        for j = 1:length(bpmLabels)
-            if ~isnan(heatmapD(i, j))
-                text(j, i, sprintf('%.1f', heatmapD(i, j)), ...
-                    'HorizontalAlignment', 'center', 'FontSize', 8, ...
-                    'Color', getTextColor(heatmapD(i, j)));
-            end
-        end
-    end
-    
+
+    ax1 = axes('Parent',parentTab,'Position',[0.08,0.68,0.86,0.26]);
+    ax2 = axes('Parent',parentTab,'Position',[0.08,0.38,0.86,0.26]);
+    ax3 = axes('Parent',parentTab,'Position',[0.08,0.08,0.86,0.26]);
+
+    plotHRHeatmap(ax1, params(:,1), sort(unique(params(:,1))), errors, bpmBinIdx, bpmLabels, ...
+        'Window Size (W)',    'MAE: Window Size vs Heart Rate');
+    plotHRHeatmap(ax2, params(:,2), sort(unique(params(:,2))), errors, bpmBinIdx, bpmLabels, ...
+        'Threshold (T)',      'MAE: Threshold vs Heart Rate');
+    plotHRHeatmap(ax3, params(:,3), sort(unique(params(:,3))), errors, bpmBinIdx, bpmLabels, ...
+        'Min Deviation (D)',  'MAE: Min Deviation vs Heart Rate');
+
     fprintf('\n=== HEART RATE ANALYSIS ===\n');
-    fprintf('Analyzed %d runs with BPM and ground truth\n', numRuns);
-    fprintf('BPM range: %.0f - %.0f\n', min(bpms), max(bpms));
-    fprintf('Color coding: Green (<5 mmHg), Yellow (5-10 mmHg), Light Red (10-15 mmHg), Dark Red (>15 mmHg)\n\n');
+    fprintf('Runs with BPM+GT: %d | BPM range: %.0f-%.0f\n', numRuns, min(bpms), max(bpms));
+end
+
+% -------------------------------------------------------------------------
+function plotHRHeatmap(ax, paramVec, uniqueVals, errors, bpmBinIdx, bpmLabels, ylabelStr, titleStr)
+    axes(ax);
+    nRows = length(uniqueVals);
+    nCols = length(bpmLabels);
+    hmap  = nan(nRows, nCols);
+    for i = 1:nRows
+        detIdx = find(paramVec == uniqueVals(i));
+        for j = 1:nCols
+            runIdx = find(bpmBinIdx == j);
+            if ~isempty(runIdx) && ~isempty(detIdx)
+                sub = errors(detIdx, runIdx);
+                hmap(i,j) = mean(abs(sub(:)),'omitnan');
+            end
+        end
+    end
+    imagesc(hmap); colormap(ax, createErrorColormap()); caxis([0 20]); colorbar;
+    set(gca,'XTick',1:nCols,'XTickLabel',bpmLabels,'XTickLabelRotation',45);
+    set(gca,'YTick',1:nRows,'YTickLabel',uniqueVals);
+    xlabel('Heart Rate (BPM)','FontSize',11);
+    ylabel(ylabelStr,'FontSize',11);
+    title(titleStr,'FontSize',12);
+    for i = 1:nRows
+        for j = 1:nCols
+            if ~isnan(hmap(i,j))
+                text(j,i,sprintf('%.1f',hmap(i,j)),'HorizontalAlignment','center', ...
+                    'FontSize',8,'Color',getTextColor(hmap(i,j)));
+            end
+        end
+    end
+end
+
+% -------------------------------------------------------------------------
+function shortLabels = shortenDetectorNames(detectors)
+    shortLabels = cell(size(detectors));
+    for i = 1:length(detectors)
+        label = detectors{i};
+        label = strrep(label,'BL_','BL');
+        label = strrep(label,'DRV_','DRV');
+        label = strrep(label,'ENV_','ENV');
+        label = strrep(label,'_',',');
+        shortLabels{i} = label;
+    end
 end
 
 function cmap = createErrorColormap()
-    % Create custom colormap: green -> yellow -> light red -> dark red
-    % <5: green, 5-10: yellow, 10-15: light red, >15: dark red
-    
-    n = 256;
-    cmap = zeros(n, 3);
-    
+    n = 256; cmap = zeros(n,3);
     for i = 1:n
-        error = (i-1) * 20 / (n-1);  % Map to 0-20 mmHg range
-        
-        if error < 5
-            % Green
-            cmap(i, :) = [0, 0.8, 0];
-        elseif error < 10
-            % Transition green to yellow
-            t = (error - 5) / 5;
-            cmap(i, :) = [t, 0.8, 0];
-        elseif error < 15
-            % Transition yellow to light red
-            t = (error - 10) / 5;
-            cmap(i, :) = [1, 0.8*(1-t) + 0.5*t, 0];
-        else
-            % Transition light red to dark red
-            t = min((error - 15) / 5, 1);
-            cmap(i, :) = [1, 0.5*(1-t), 0];
+        err = (i-1)*20/(n-1);
+        if err < 5;      cmap(i,:) = [0, 0.8, 0];
+        elseif err < 10; t = (err-5)/5;   cmap(i,:) = [t, 0.8, 0];
+        elseif err < 15; t = (err-10)/5;  cmap(i,:) = [1, 0.8*(1-t)+0.5*t, 0];
+        else;            t = min((err-15)/5,1); cmap(i,:) = [1, 0.5*(1-t), 0];
         end
     end
 end
 
-function color = getTextColor(error)
-    % Return black or white text depending on background brightness
-    if isnan(error)
-        color = 'k';
-    elseif error < 10
-        color = 'k';  % Black text on green/yellow
-    else
-        color = 'w';  % White text on red
-    end
+function color = getTextColor(err)
+    if isnan(err) || err < 10; color = 'k'; else; color = 'w'; end
 end

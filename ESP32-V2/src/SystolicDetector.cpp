@@ -453,7 +453,7 @@ EnvelopeSystolicDetector::EnvelopeSystolicDetector(int window)
     pressureHistory = new float[windowSize];
     timeHistory = new unsigned long[windowSize];
 
-    snprintf(nameBuffer, sizeof(nameBuffer), "Env_W%d", windowSize);
+    snprintf(nameBuffer, sizeof(nameBuffer), "ENV_W%d", windowSize);
     name = nameBuffer;
 
     reset();
@@ -466,20 +466,21 @@ EnvelopeSystolicDetector::~EnvelopeSystolicDetector()
     delete[] timeHistory;
 }
 
-bool EnvelopeSystolicDetector::isEnvelopeFlat(int lookback)
+bool EnvelopeSystolicDetector::isEnvelopeFlat(int lookback, int offset)
 {
-    if (historyCount < lookback) return false;
+    if (historyCount < lookback + offset) return false;
 
     float mean = 0.0f;
     for (int i = 0; i < lookback; i++) {
-        int idx = (historyIdx - 1 - i + windowSize) % windowSize;
+        // Start lookback samples further back than the rise window
+        int idx = (historyIdx - 1 - offset - i + windowSize) % windowSize;
         mean += envelopeHistory[idx];
     }
     mean /= lookback;
 
     float var = 0.0f;
     for (int i = 0; i < lookback; i++) {
-        int idx = (historyIdx - 1 - i + windowSize) % windowSize;
+        int idx = (historyIdx - 1 - offset - i + windowSize) % windowSize;
         float d = envelopeHistory[idx] - mean;
         var += d * d;
     }
@@ -487,7 +488,6 @@ bool EnvelopeSystolicDetector::isEnvelopeFlat(int lookback)
 
     constexpr float VAR_THRESH = 2.0f;
     constexpr float AMP_THRESH = 10.0f;
-
     return (var < VAR_THRESH && mean < AMP_THRESH);
 }
 
@@ -617,8 +617,8 @@ bool EnvelopeSystolicDetector::detect(int ppgSignal, float pressureSignal, unsig
     int riseWin = getAdaptiveRiseWindow();
     float envThreshold = getAdaptiveEnvelopeThreshold();
     
-    bool flat = isEnvelopeFlat(flatWin);
-    bool rising = isEnvelopeIncreasing(riseWin);
+    bool flat   = isEnvelopeFlat(flatWin, riseWin);  // look before the rise
+    bool rising = isEnvelopeIncreasing(riseWin);      // look at the recent rise
     
     int currIdx = (historyIdx - 1 + windowSize) % windowSize;
     
