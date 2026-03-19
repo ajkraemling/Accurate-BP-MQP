@@ -9,6 +9,7 @@ void MotorController::begin() {
     pinMode(MOTOR_IN2_PIN, OUTPUT);
     pinMode(SOLENOID_IN3_PIN, OUTPUT);
     pinMode(SOLENOID_IN4_PIN, OUTPUT);
+    pinMode(4, OUTPUT);
 
     stopInflation();
     stopDeflation();
