@@ -14,7 +14,7 @@ import numpy as np
 # SERIAL PORT CONFIGURATION
 # ============================================================================
 
-ser = serial.Serial('COM6', 115200, timeout=1)
+ser = serial.Serial('/dev/cu.usbserial-0001', 115200, timeout=1)
 ser.dtr = False
 ser.rts = False
 time.sleep(0.2)
