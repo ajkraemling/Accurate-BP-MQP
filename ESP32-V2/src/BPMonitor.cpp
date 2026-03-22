@@ -201,7 +201,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
         if (ppgSignal > 100) lastBeatDetectedPressure = pressure;
 
         if (pressure < (maxPressure - PRESSURE_DROP_THRESHOLD) // For omron, if we notice a pressure drop start measuring
-            || pressure > 180 // For our motor, based on highest pressure it should go
+            || pressure > 210 // For our motor, based on highest pressure it should go
             || (pressure - lastBeatDetectedPressure) > 180 // For our motor, based on how high it should go after last detection. This may interfere with Omron Testing
     ){
             state = MEASURING;
@@ -230,7 +230,7 @@ void BPMonitor::update(const BPMeasurement& measurement)
         }
 
         // Controlled deflation - faster after 80 mmHg
-        if (ppgSignal > 300 || pressure < 60) {
+        if (ppgSignal > 1000 || pressure < 70) {
             motor->openSolenoid();
         }
 
