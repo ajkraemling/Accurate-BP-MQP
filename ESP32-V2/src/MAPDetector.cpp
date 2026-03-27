@@ -365,10 +365,6 @@ bool MAPDetector::detectMAP()
         if (sbp <= mapPressure || dbp >= mapPressure)
             return false;
         
-        float pulsePressure = sbp - dbp;
-        if (pulsePressure < 20.0f || pulsePressure > 150.0f)
-            return false;
-        
         systolicPressure  = sbp;
         diastolicPressure = dbp;
         return true;

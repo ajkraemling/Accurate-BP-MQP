@@ -38,6 +38,7 @@ public:
 #include "BPMonitor.h"
 #include "filters.h"
 #include "MotorController.h"
+#include <regex>
 
 // CSV Row structure
 struct CSVRow {
@@ -182,7 +183,7 @@ CSVData loadCSV(const std::string& filename) {
     data.pressureColIdx = findColumnIndex(getHeaders, {"Pressure"});
     data.ppgColIdx = findColumnIndex(getHeaders, {"PPGSignal"});
     data.rawPPGColIdx = findColumnIndex(getHeaders, {"rawPPGSignal", "PPG"});
-    data.ausPulseHeardIdx = findColumnIndex(getHeaders, {"AUS_PULSE_HEARD"});
+    data.ausPulseHeardIdx = 4;
 
     if (data.timeColIdx == -1 || data.pressureColIdx == -1) {
         std::cerr << "Error: Required columns not found!" << std::endl;
@@ -426,7 +427,7 @@ void printRunResults(BPMonitor& monitor, const std::string& filename, int runNum
 }
 
 // Output CSV for one run - UPDATED to match Arduino format
-void outputRunCSV(const CSVData& originalData, BPMonitor& monitor, 
+std::pair<int,int> outputRunCSV(const CSVData& originalData, BPMonitor& monitor, 
                   const std::string& outputFile, const std::vector<CSVRow>& outputRows) {
     std::ofstream out(outputFile);
     
@@ -439,6 +440,9 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
     
     int baselineBeatCount = 0;
     const unsigned long* baselineBeats = monitor.getBaselineBeats(baselineBeatCount);
+
+    int aus_sbp = -1;
+    int aus_dbp = -1;
 
     // Output rows with detector results
     for (const auto& row : outputRows) {
@@ -461,7 +465,13 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         
         // AUS_PULSE_HEARD (optional - button press)
         if (originalData.hasAusPulseHeard) {
-            out << "," << row.ausPulseHeard;
+            if (row.ausPulseHeard == 0) {
+                if (aus_sbp == -1) aus_sbp = row.pressure;
+                aus_dbp = row.pressure;
+                out << ",1";
+            }
+            else
+                out << ",0";
         }
 
         out << "\n";
@@ -499,6 +509,14 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         << std::fixed << std::setprecision(0) << result.systolic
         << ",0\n";
     
+    out << "AusSys,0,"
+        << std::fixed << std::setprecision(0) << aus_sbp
+        << ",0\n";
+
+    out << "AusDia,0,"
+        << std::fixed << std::setprecision(0) << aus_dbp
+        << ",0\n";
+    
     // Oscillometric Results
     MAPDetector* osc = monitor.getMAPDetector();
     
@@ -526,6 +544,7 @@ void outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         << ",0\n";
     
     out << "#SUMMARY_END\n";
+    return {aus_sbp, aus_dbp};
 }
 
 bool extractSBPFromFilename(const std::string& filename, float& sbpOut) {
@@ -545,14 +564,35 @@ bool extractSBPFromFilename(const std::string& filename, float& sbpOut) {
 
 
 // Output summary report for one run
-void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runNumber) {
+void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runNumber, int omron_sbp, int omron_dbp, int aus_sbp, int aus_dbp) {
     std::ofstream out(outputFile);
     
     float trueSBP = 0.0f;
     bool hasTrueSBP = extractSBPFromFilename(outputFile, trueSBP);
 
     out << "=== Blood Pressure Measurement Report - Run #" << runNumber << " ===\n\n";
-    
+    float map = monitor.getMAP();
+    BPResult ensembleResult = monitor.getEnsembleResult();
+    out << "Systolic: \n";
+    out << "Auscultatory Systolic   : " << std::fixed << std::setprecision(0) << aus_sbp << " mmHg (GROUND TRUTH)\n";
+    out << "Ensemble Systolic       : " << std::fixed << std::setprecision(0) << ensembleResult.systolic << " mmHg\n";
+    out << "Oscillometric Systolic  : " << monitor.getMAPDetector()->getSystolic() << " mmHg\n";
+    if (omron_sbp != -1) 
+        out << "Omron Systolic          : " << omron_sbp << " mmHg\n";
+
+    out << "\nDiastolic:\n";
+
+    float DBP = -1.0;
+    if (ensembleResult.systolic > 0 && map > 0) {
+        DBP = (3.0f * map - ensembleResult.systolic) / 2.0f;
+    }
+
+    out << "Auscultatory Diastolic  : " << std::fixed << std::setprecision(0) << aus_dbp << " mmHg (GROUND TRUTH)\n";
+    out << "Ensemble Diastolic      : " << std::fixed << std::setprecision(0) << DBP << " mmHg\n";
+    out << "Oscillometric Diastolic : " << monitor.getMAPDetector()->getDiastolic() << " mmHg\n";
+    if (omron_sbp != -1) 
+        out << "Omron Diastolic         : " << omron_dbp << " mmHg\n";
+
     float baselineBPM = monitor.getBaselineBPM();
     if (baselineBPM > 0) {
         HeartRateRange hr = monitor.getBaselineHeartRate();
@@ -562,24 +602,24 @@ void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runN
         out << "No baseline HR detected\n\n";
     }
     
-    BPResult ensembleResult = monitor.getEnsembleResult();
     out << "*** ENSEMBLE RESULT ***\n";
     out << "Ensemble Systolic: " << std::fixed << std::setprecision(0) << ensembleResult.systolic << " mmHg\n";
     out << "Confidence: " << std::setprecision(3) << ensembleResult.confidence << "\n";
     out << "95% CI: [" << std::setprecision(0) << ensembleResult.confidenceIntervalLow 
         << " - " << ensembleResult.confidenceIntervalHigh << "] mmHg\n";
     out << "Agreement: " << ensembleResult.agreementCount << "/" 
-        << ensembleResult.totalDetectors << " detectors\n\n";
+        << ensembleResult.totalDetectors * MAX_DETECTIONS << " detections\n\n";
     
-    float map = monitor.getMAP();
     out << "MAP: " << map << " mmHg\n";
-    if (ensembleResult.systolic > 0 && map > 0) {
-        float DBP = (3.0f * map - ensembleResult.systolic) / 2.0f;
-        out << "Est. Diastolic: " << DBP << " mmHg\n";
-    }
-    out << "Oscillometric MAP Systolic: " << monitor.getMAPDetector()->getSystolic() << " mmHg\n";
-    out << "Oscillometric MAP Diastolic: " << monitor.getMAPDetector()->getDiastolic() << " mmHg\n";
+    out << "Est. Diastolic: " << DBP << " mmHg  [MAP=(2*DBP + SBP)/3]\n";
+    out << "Calculated Oscillometric SBP: " << monitor.getMAPDetector()->getSystolic() << " mmHg\n";
+    out << "Calculated Oscillometric DBP: " << monitor.getMAPDetector()->getDiastolic() << " mmHg\n";
     
+    if (omron_sbp != -1) {
+        out << "Omron SBP: " << omron_sbp << " mmHg\n";
+        out << "Omron DBP: " << omron_dbp << " mmHg\n";
+    }
+
     out << "\n--- DETECTOR PERFORMANCE SUMMARY ---\n\n";
 
     out << std::left
@@ -799,19 +839,46 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
             // Print results for this run
             printRunResults(monitor, getFilename(inputFile), runNumber);
             
+            std::string s = baseName;
+
+            // Remove ".csv" safely
+            if (s.size() > 4 && s.substr(s.size() - 4) == ".csv") {
+                s = s.substr(0, s.size() - 4);
+            }
+
+            std::vector<std::string> parts;
+            std::stringstream ss(s);
+            std::string item;
+            while (std::getline(ss, item, '_')) {
+                parts.push_back(item);
+            }
+
+            int omron_sbp = -1;
+            int omron_dbp = -1;
+
+            if (parts.size() >= 3) {
+                try {
+                    omron_sbp = std::stoi(parts[parts.size() - 2]); // 128
+                    omron_dbp = std::stoi(parts[parts.size() - 1]); // 89
+                } catch (...) {
+                    omron_sbp = -1;
+                    omron_dbp = -1;
+                }
+            }
+
             // Generate output files for this run
-            std::string runSuffix = "_run" + std::to_string(runNumber);
-            std::string csvOutput = joinPath(fileOutputDir, baseName + runSuffix + "_results.csv");
-            std::string reportOutput = joinPath(fileOutputDir, baseName + runSuffix + "_report.txt");
-            
-            outputRunCSV(data, monitor, csvOutput, currentRunOutput);
-            outputRunReport(monitor, reportOutput, runNumber);
+            std::string csvOutput = joinPath(fileOutputDir, baseName + "_results.csv");
+            std::string reportOutput = joinPath(fileOutputDir, baseName + "_report.txt");
+            std::pair<int,int> aus;
+            aus = outputRunCSV(data, monitor, csvOutput, currentRunOutput);
+            outputRunReport(monitor, reportOutput, runNumber, omron_sbp, omron_dbp, aus.first, aus.second);
             
             std::cout << "  Run #" << runNumber << " outputs:\n";
             std::cout << "    CSV: " << csvOutput << "\n";
             std::cout << "    Report: " << reportOutput << "\n";
             
             // Reset for next run
+            break;
             runNumber++;
             monitor.reset();
             filter.reset();
@@ -822,13 +889,8 @@ void processFile(const std::string& inputFile, const std::string& outputDir,
         lastState = monitor.getState();
     }
     
-    // Handle case where we're still in a run at end of file
-    if (monitor.getState() != IDLE && !currentRunOutput.empty()) {
-        std::cout << "\n  Note: Run #" << runNumber << " incomplete (file ended mid-measurement)\n";
-    }
-    
     if (runNumber == 1) {
-        std::cout << "No complete runs detected in this file\n";
+        // std::cout << "No complete runs detected in this file\n";
     } else {
         std::cout << "Detected " << (runNumber - 1) << " complete measurement run(s)\n";
     }
@@ -860,83 +922,83 @@ int main(int argc, char* argv[]) {
     // float thresholds[] = {1.5, 1.7, 2.0, 2.2, 2.4, 2.7, 3.0};
     // int holds[] = {10, 15, 20, 25, 30};
 
-    int windows[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220};
-    // int windows[] = {50, 60, 70, 80, 90, 100, 110, 120, 130};
-    // int windows[] = {10, 20, 30, 40, 50};
-    // int windows[] = {130, 140, 150, 160, 170, 180, 190, 200, 220, 230, 250, 270, 290, 320, 350, 380, 400};
-    // int windows[] = {120, 130, 140, 150, 160, 170};
-    // // float thresholds[] = {1.8, 2.0, 2.2, 2.4};
-    float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0};
-    int minDev[] = {10, 20, 30};
-    for (int w : windows) {
-        for (float t : thresholds) {
-            for (int d : minDev) {
+    // int windows[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220};
+    // // int windows[] = {50, 60, 70, 80, 90, 100, 110, 120, 130};
+    // // int windows[] = {10, 20, 30, 40, 50};
+    // // int windows[] = {130, 140, 150, 160, 170, 180, 190, 200, 220, 230, 250, 270, 290, 320, 350, 380, 400};
+    // // int windows[] = {120, 130, 140, 150, 160, 170};
+    // // // float thresholds[] = {1.8, 2.0, 2.2, 2.4};
+    // float thresholds[] = {1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0};
+    // int minDev[] = {10, 20, 30};
+    // for (int w : windows) {
+    //     for (float t : thresholds) {
+    //         for (int d : minDev) {
+    //             auto* det = new BaselineDetector(w, t, d);
+    //             allocatedDetectors.push_back(det);
+    //             monitor.addDetector(det);
+    //         }
+    //     }
+    // }
+    
+    
+    // Final detector decisions:
+    // TIER ONE (BEST PERFORMING DETECTORS, 80 detectors) 
+    int t1Windows[] = {60, 70, 80, 90, 100};
+    float t1Thresh[] = {1.8, 1.9, 2.0, 2.2};
+    int t1Dev[] = {5, 10, 12, 16};
+
+    for (int w : t1Windows) {
+        for (float t : t1Thresh) {
+            for (int d : t1Dev) {
                 auto* det = new BaselineDetector(w, t, d);
                 allocatedDetectors.push_back(det);
                 monitor.addDetector(det);
             }
         }
     }
-    
-    
-    // Final detector decisions:
-    // TIER ONE (BEST PERFORMING DETECTORS, 80 detectors) 
-    // int t1Windows[] = {60, 70, 80, 90, 100};
-    // float t1Thresh[] = {1.8, 1.9, 2.0, 2.2};
-    // int t1Dev[] = {5, 10, 12, 16};
 
-    // for (int w : t1Windows) {
-    //     for (float t : t1Thresh) {
-    //         for (int d : t1Dev) {
-    //             auto* det = new BaselineDetector(w, t, d);
-    //             allocatedDetectors.push_back(det);
-    //             monitor.addDetector(det);
-    //         }
-    //     }
-    // }
+    // TIER TWO (HIGH WINDOW DETECTORS, 40 detectors) 
+    int t2Windows[] = {110, 120, 130, 140, 150};
+    float t2Thresh[] = {2.0, 2.4, 2.8, 3.3};
+    int t2Dev[] = {12, 18};
 
-    // // TIER TWO (HIGH WINDOW DETECTORS, 40 detectors) 
-    // int t2Windows[] = {110, 120, 130, 140, 150};
-    // float t2Thresh[] = {2.0, 2.4, 2.8, 3.3};
-    // int t2Dev[] = {12, 18};
-
-    // for (int w : t2Windows) {
-    //     for (float t : t2Thresh) {
-    //         for (int d : t2Dev) {
-    //             auto* det = new BaselineDetector(w, t, d);
-    //             allocatedDetectors.push_back(det);
-    //             monitor.addDetector(det);
-    //         }
-    //     }
-    // }
-
-    // // TIER THREE (LOW WINDOW DETECTORS, 24 detectors) 
-    // int t3Windows[] = {20, 30, 40, 50};
-    // float t3Thresh[] = {1.65, 1.8, 2.0};
-    // int t3Dev[] = {12, 15};
-
-    // for (int w : t3Windows) {
-    //     for (float t : t3Thresh) {
-    //         for (int d : t3Dev) {
-    //             auto* det = new BaselineDetector(w, t, d);
-    //             allocatedDetectors.push_back(det);
-    //             monitor.addDetector(det);
-    //         }
-    //     }
-    // }
-
-    
-    int drv_th[] = {4, 6, 8, 10, 12, 16, 20};
-
-    for (int w : drv_th) {
-        auto* env_det = new EnvelopeSystolicDetector(w);
-        allocatedDetectors.push_back(env_det);
-        monitor.addDetector(env_det);
-
-        auto* der_det = new DerivativeDetector(w);
-        allocatedDetectors.push_back(der_det);
-        monitor.addDetector(der_det);
+    for (int w : t2Windows) {
+        for (float t : t2Thresh) {
+            for (int d : t2Dev) {
+                auto* det = new BaselineDetector(w, t, d);
+                allocatedDetectors.push_back(det);
+                monitor.addDetector(det);
+            }
+        }
     }
+
+    // TIER THREE (LOW WINDOW DETECTORS, 24 detectors) 
+    int t3Windows[] = {20, 30, 40, 50};
+    float t3Thresh[] = {1.65, 1.8, 2.0};
+    int t3Dev[] = {12, 15};
+
+    for (int w : t3Windows) {
+        for (float t : t3Thresh) {
+            for (int d : t3Dev) {
+                auto* det = new BaselineDetector(w, t, d);
+                allocatedDetectors.push_back(det);
+                monitor.addDetector(det);
+            }
+        }
+    }
+
+    
+    // int drv_th[] = {4, 6, 8, 10, 12, 16, 20};
+
+    // for (int w : drv_th) {
+    //     auto* env_det = new EnvelopeSystolicDetector(w);
+    //     allocatedDetectors.push_back(env_det);
+    //     monitor.addDetector(env_det);
+
+    //     auto* der_det = new DerivativeDetector(w);
+    //     allocatedDetectors.push_back(der_det);
+    //     monitor.addDetector(der_det);
+    // }
 
     std::cout << "Using " << monitor.getDetectorCount() << " detectors\n";
 

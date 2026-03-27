@@ -217,7 +217,9 @@ for fileIdx = 1:length(files)
             entry   = summaryData{i};
             detName = entry.Detector;
             if entry.Timestamp == 0 || entry.Pressure < 0
-                if ~strcmp(detName, 'BPM'); continue; end
+                if ~strcmp(detName, 'BPM') && ~ismember(detName, postProcessors)
+                    continue;
+                end
             end
             if ismember(detName, postProcessors)
                 detectorMap(detName) = entry;
@@ -341,14 +343,14 @@ if runsWithGroundTruth > 0
     blTab_v2 = uitab(tabGroup, 'Title', 'Baseline Analysis Error from Ground Truth');
     createBLAnalysisTab_v2(blTab_v2, allRuns, allDetectors);
 end
+% 
+% % Derivative (DRV) Analysis
+% drvTab = uitab(tabGroup, 'Title', 'Derivative Analysis');
+% createDRVAnalysisTab(drvTab, allRuns, allDetectors);
 
-% Derivative (DRV) Analysis
-drvTab = uitab(tabGroup, 'Title', 'Derivative Analysis');
-createDRVAnalysisTab(drvTab, allRuns, allDetectors);
-
-% Envelope (ENV) Analysis
-envTab = uitab(tabGroup, 'Title', 'Envelope Analysis');
-createENVAnalysisTab(envTab, allRuns, allDetectors);
+% % Envelope (ENV) Analysis
+% envTab = uitab(tabGroup, 'Title', 'Envelope Analysis');
+% createENVAnalysisTab(envTab, allRuns, allDetectors);
 
 % Per-person tabs
 personNames = {'Harleen','Brendan','Taegon','Alex','Alexander','Kali','Nina'};
@@ -405,8 +407,6 @@ for i = 1:length(allRuns)
     createFileTab(tab, allRuns{i});
 end
 
-fprintf('\nAnalysis complete! Use the tabs to navigate between views.\n');
-
 %% ========================================================================
 %% Helper Functions
 %% ========================================================================
@@ -424,84 +424,86 @@ function filteredRuns = filterRunsByName(allRuns, namePatterns)
         end
     end
 end
-
-% -------------------------------------------------------------------------
 function createFileTab(parentTab, runInfo)
-    ax = axes('Parent', parentTab, 'Position', [0.08, 0.15, 0.78, 0.75]);
+% Single interactive plot per tab with PPG, raw PPG, pressure, AUS crosses, detector lines
+% and info line at bottom. Zoom/pan works.
 
-    if ~isfield(runInfo,'hasAusPulse')
-        runInfo.hasAusPulse       = false;
-        runInfo.pulseHeardIndices = [];
+    % --- Safety defaults ---
+    if ~isfield(runInfo,'hasRawPPG'); runInfo.hasRawPPG = false; end
+    if ~isfield(runInfo,'hasAusPulse'); runInfo.hasAusPulse = false; end
+    if ~isfield(runInfo,'pulseHeardIndices'); runInfo.pulseHeardIndices = []; end
+    if ~isfield(runInfo,'detectors'); runInfo.detectors = {}; end
+    if ~isfield(runInfo,'detections'); runInfo.detections = containers.Map; end
+    if ~isfield(runInfo,'time'); runInfo.time = []; end
+    if ~isfield(runInfo,'ppg'); runInfo.ppg = []; end
+    if ~isfield(runInfo,'rawPPG'); runInfo.rawPPG = []; end
+    if ~isfield(runInfo,'pressure'); runInfo.pressure = []; end
+
+    % --- Create axes ---
+    ax = axes('Parent', parentTab);
+    hold(ax,'on'); grid(ax,'on');
+
+    % --- Plot PPG and raw PPG ---
+    if runInfo.hasRawPPG && ~isempty(runInfo.rawPPG)
+        hRaw = plot(ax, runInfo.time, runInfo.rawPPG, 'Color',[1 0.6 0.6],'LineWidth',0.8);
+    end
+    hPPG = plot(ax, runInfo.time, runInfo.ppg, 'r-','LineWidth',1.0);
+
+    % --- Pressure on right yyaxis ---
+    yyaxis(ax,'right');
+    hPres = plot(ax, runInfo.time, runInfo.pressure,'b-','LineWidth',1.5);
+    ylabel(ax,'Pressure (mmHg)');
+
+    % --- AUS crosses ---
+    if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
+        ausT = runInfo.time(runInfo.pulseHeardIndices);
+        ausP = runInfo.pressure(runInfo.pulseHeardIndices);
+        plot(ax, ausT, ausP,'bx','MarkerSize',10,'LineWidth',2.5);
     end
 
-    yyaxis left; hold on; grid on;
-    if runInfo.hasRawPPG
-        h3 = plot(runInfo.time, runInfo.rawPPG, 'Color',[1 0.6 0.6], 'LineWidth',0.8);
-    end
-    h2 = plot(runInfo.time, runInfo.ppg, 'r-', 'LineWidth',1.0);
-    ylabel('PPG and Raw PPG','FontSize',12);
-    ax.YColor = 'r';
-
-    yyaxis right; hold on;
-    h1 = plot(runInfo.time, runInfo.pressure, 'b-', 'LineWidth',1.5);
-    ylabel('Pressure (mmHg)','FontSize',12);
-    ax.YColor = 'b';
-
-    detectorPressures = zeros(length(runInfo.detectors),1);
+    % --- Detector vertical lines ---
+    colors = lines(length(runInfo.detectors));
     for j = 1:length(runInfo.detectors)
         detName = runInfo.detectors{j};
         if isKey(runInfo.detections, detName)
             det = runInfo.detections(detName);
-            if det.detected
-                detectorPressures(j) = det.pressure;
-            else
-                detectorPressures(j) = inf;
-            end
-        else
-            detectorPressures(j) = inf;
-        end
-    end
-    [~, sortIdx]    = sort(detectorPressures);
-    sortedDetectors = runInfo.detectors(sortIdx);
-
-    colors = lines(length(sortedDetectors));
-    if runInfo.hasRawPPG
-        legendHandles = [h1, h2, h3];
-        legendLabels  = {'Pressure','PPG (Filtered)','PPG (Raw)'};
-    else
-        legendHandles = [h1, h2];
-        legendLabels  = {'Pressure','PPG'};
-    end
-
-    hasGroundTruth = runInfo.hasGroundTruth;
-
-    for j = 1:length(sortedDetectors)
-        detName  = sortedDetectors{j};
-        safeName = strrep(detName, '_', '\_');
-        if isKey(runInfo.detections, detName)
-            det = runInfo.detections(detName);
             if det.detected && ~isnan(det.time)
-                xline(det.time, '--', 'Color', colors(j,:), 'LineWidth', 1.5);
-                h = plot(det.time, det.pressure, 'o', 'Color', colors(j,:), ...
-                    'MarkerSize',10,'LineWidth',2);
-                legendHandles(end+1) = h;
-                % Use plain "Err=" to avoid invalid \D escape in sprintf
-                if hasGroundTruth
-                    legendLabels{end+1} = sprintf('%s: %.1f mmHg (Err=%.1f, C=%.2f)', ...
-                        safeName, det.pressure, det.error, det.confidence);
-                else
-                    legendLabels{end+1} = sprintf('%s: %.1f mmHg (C=%.2f)', ...
-                        safeName, det.pressure, det.confidence);
-                end
-            else
-                h = plot(NaN, NaN, 'o', 'Color', colors(j,:), 'MarkerSize',10,'LineWidth',2);
-                legendHandles(end+1) = h;
-                legendLabels{end+1}  = sprintf('%s: No detection', safeName);
+                xline(ax, det.time, '--', 'Color', colors(j,:), 'LineWidth',1.5);
             end
         end
     end
 
-    xlabelStr = 'Time (s)';
+    % --- Labels and title ---
+    xlabel(ax,'Time (s)');
+    yyaxis(ax,'left'); ylabel(ax,'PPG');
+    if isfield(runInfo,'displayName')
+        title(ax, runInfo.displayName,'Interpreter','none');
+    end
+
+    % --- Legend handles ---
+    legendHandles = [hPres, hPPG];
+    legendEntries  = {'Pressure','PPG'};
+    
+    if exist('hRaw','var')
+        legendHandles(end+1) = hRaw;
+        legendEntries{end+1} = 'PPG (Raw)';
+    end
+    
+    if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
+        legendHandles(end+1) = plot(NaN,NaN,'bx','MarkerSize',10,'LineWidth',2.5);
+        legendEntries{end+1} = 'AUS Pulse Heard';
+    end
+    
+    % Instead of one entry per detector, just one entry for all detectors
+    if ~isempty(runInfo.detectors)
+        legendHandles(end+1) = plot(NaN,NaN,'--k','LineWidth',1.5);
+        legendEntries{end+1} = 'Detectors';
+    end
+    
+    legend(ax, legendHandles, legendEntries, 'Location','eastoutside','FontSize',8);
+
+    % --- Info line / subtitles at bottom ---
+    infoStr = '';
     if isfield(runInfo,'post') && iscell(runInfo.post) && ~isempty(runInfo.post) && ...
        isfield(runInfo,'postValues') && ~isempty(fieldnames(runInfo.postValues))
         parts = {};
@@ -512,22 +514,27 @@ function createFileTab(parentTab, runInfo)
             end
         end
         if ~isempty(parts)
-            xlabelStr = sprintf('%s\n%s', xlabelStr, strjoin(parts,' | '));
+            infoStr = strjoin(parts,' | ');
         end
     end
-    xlabel(xlabelStr,'FontSize',12,'Interpreter','none');
-
-    titleStr = runInfo.displayName;
-    if hasGroundTruth
-        titleStr = sprintf('%s - Ground Truth: %.1f mmHg', titleStr, runInfo.groundTruthPressure);
+    if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
+        if ~isempty(infoStr)
+            infoStr = [infoStr ' | '];
+        end
+        infoStr = [infoStr 'AUS pulses detected'];
     end
-    title(titleStr,'FontSize',14,'Interpreter','none');
 
-    lgd = legend(legendHandles, legendLabels, 'Location','eastoutside','FontSize',9);
-    lgd.NumColumns = 1;
-    lgd.ItemHitFcn = @(src,evt) toggleVisibility(evt);
+    % Display info line at bottom, slightly below x-axis
+    xLim = get(ax,'XLim');
+    yLim = get(ax,'YLim');
+    text(ax, xLim(1), yLim(1)-0.05*diff(yLim), infoStr, ...
+        'VerticalAlignment','top','HorizontalAlignment','left','FontSize',9, ...
+        'Interpreter','none');
+
+    % --- Enable zoom/pan interaction ---
+    zoom(ax,'on'); pan(ax,'on');
+
 end
-
 % -------------------------------------------------------------------------
 function toggleVisibility(evt)
     obj = evt.Peer;
@@ -732,8 +739,14 @@ end
 function createGroundTruthTabGroup(tabGroup, allRuns, allDetectors)
     runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
     if isempty(runsWithGT); return; end
+
+    % Existing algorithm-detector ranking tabs
     createRankingTabGroup(tabGroup, runsWithGT, allDetectors, ...
         'error', 'absError', 'Ground Truth', 'GT');
+
+    % NEW: Post-processor (Ensemble / OscSys) vs ground truth
+    ppTab = uitab(tabGroup, 'Title', 'GT Post-Processor Analysis');
+    createPostProcessorGTTab(ppTab, runsWithGT);
 end
 
 function createSBPReferenceTabGroup(tabGroup, allRuns, allDetectors)
@@ -741,6 +754,175 @@ function createSBPReferenceTabGroup(tabGroup, allRuns, allDetectors)
     if isempty(runsWithSBP); return; end
     createRankingTabGroup(tabGroup, runsWithSBP, allDetectors, ...
         'sbpError', 'sbpAbsError', 'SBP Reference', 'SBP');
+end
+
+% -------------------------------------------------------------------------
+% NEW: Post-processor ground truth analysis tab
+%   Compares Ensemble and OscSys (excluding -1 readings) against GT.
+%   Shows per-run scatter, error distribution, MAE/bias summary,
+%   and OscSys success rate.
+% -------------------------------------------------------------------------
+function createPostProcessorGTTab(parentTab, runsWithGT)
+
+    numRuns    = length(runsWithGT);
+    processors = {'Ensemble', 'OscSys'};
+    colors     = {[0.2 0.5 0.9], [0.9 0.4 0.1]};   % blue, orange
+
+    % ---- Collect values ------------------------------------------------
+    gtVals        = nan(1, numRuns);
+    ppVals        = nan(length(processors), numRuns);   % raw (may contain -1)
+    ppValid       = false(length(processors), numRuns);  % true when usable
+
+    for i = 1:numRuns
+        if ~runsWithGT{i}.hasGroundTruth; continue; end
+        gtVals(i) = runsWithGT{i}.groundTruthPressure;
+
+        for p = 1:length(processors)
+            name = processors{p};
+            if isfield(runsWithGT{i}.postValues, name)
+                val = runsWithGT{i}.postValues.(name);
+                ppVals(p, i) = val;
+                % OscSys is valid only when != -1; Ensemble always valid
+                if strcmp(name, 'OscSys')
+                    ppValid(p, i) = (val > 0);
+                else
+                    ppValid(p, i) = true;
+                end
+            end
+        end
+    end
+
+    % ---- Derived statistics -------------------------------------------
+    % errors only where valid
+    errors    = nan(length(processors), numRuns);
+    absErrors = nan(length(processors), numRuns);
+    for p = 1:length(processors)
+        mask           = ppValid(p,:);
+        errors(p,mask)    = ppVals(p,mask) - gtVals(mask);
+        absErrors(p,mask) = abs(errors(p,mask));
+    end
+
+    mae      = mean(absErrors, 2, 'omitnan');
+    sdAE     = std( absErrors, 0, 2, 'omitnan');
+    bias     = mean(errors,    2, 'omitnan');
+    sdBias   = std( errors,    0, 2, 'omitnan');
+    nValid   = sum(ppValid, 2);
+    succRate = nValid / numRuns * 100;
+
+    % ---- Print summary to console ------------------------------------
+    fprintf('\n=== POST-PROCESSOR GROUND TRUTH ANALYSIS ===\n');
+    fprintf('Total runs with GT: %d\n\n', numRuns);
+    for p = 1:length(processors)
+        fprintf('%s:\n', processors{p});
+        fprintf('  Valid readings : %d / %d  (%.1f%%)\n', nValid(p), numRuns, succRate(p));
+        fprintf('  MAE            : %.2f +/- %.2f mmHg\n', mae(p), sdAE(p));
+        fprintf('  Bias           : %.2f +/- %.2f mmHg\n', bias(p), sdBias(p));
+        fprintf('\n');
+    end
+
+    % ================================================================
+    % Layout: 3 rows x 2 columns
+    %   Row 1: Scatter plots  (predicted vs GT)
+    %   Row 2: Error histograms
+    %   Row 3: Summary bar charts  (MAE | Bias | Success Rate)
+    % ================================================================
+
+    rowH  = 0.26;   rowGap = 0.06;
+    colW  = 0.38;   colGap = 0.16;
+    left1 = 0.07;   left2  = left1 + colW + colGap;
+    bot1  = 0.70;   bot2   = bot1 - rowH - rowGap;   bot3 = bot2 - rowH - rowGap;
+
+    % ------------------------------------------------------------------
+    % Row 1 — Scatter: predicted vs GT (one panel per processor)
+    % ------------------------------------------------------------------
+    for p = 1:length(processors)
+        leftPos = left1 + (p-1)*(colW + colGap);
+        ax = axes('Parent', parentTab, 'Position', [leftPos, bot1, colW, rowH]); %#ok<LAXES>
+        hold(ax, 'on'); grid(ax, 'on');
+
+        validIdx = find(ppValid(p,:));
+        scatter(ax, gtVals(validIdx), ppVals(p, validIdx), 40, colors{p}, 'filled', ...
+            'MarkerFaceAlpha', 0.7);
+
+        % Identity line
+        allVals = [gtVals(validIdx), ppVals(p, validIdx)];
+        lo = min(allVals); hi = max(allVals);
+        if isempty(lo) || isnan(lo); lo = 60; hi = 180; end
+        plot(ax, [lo hi], [lo hi], 'k--', 'LineWidth', 1.2);
+
+        xlabel(ax, 'Ground Truth (mmHg)', 'FontSize', 11);
+        ylabel(ax, sprintf('%s Reading (mmHg)', processors{p}), 'FontSize', 11);
+        title(ax, sprintf('%s vs Ground Truth  (n=%d)', processors{p}, nValid(p)), ...
+            'FontSize', 12);
+
+        % Annotate with MAE and success rate
+        annStr = sprintf('MAE=%.1f mmHg\nBias=%.1f mmHg', mae(p), bias(p));
+        if strcmp(processors{p}, 'OscSys')
+            annStr = sprintf('%s\nSuccess=%.0f%%', annStr, succRate(p));
+        end
+        text(ax, 0.03, 0.97, annStr, 'Units','normalized', ...
+            'VerticalAlignment','top', 'FontSize', 10, ...
+            'BackgroundColor', [1 1 1 0.7], 'EdgeColor', [0.6 0.6 0.6]);
+    end
+
+
+    % ------------------------------------------------------------------
+    % Row 3 — Summary: MAE bar | Bias bar | Success rate bar (OscSys only)
+    % ------------------------------------------------------------------
+    % MAE comparison (both processors side by side)
+    ax_mae = axes('Parent', parentTab, ...
+        'Position', [left1, bot3, colW*0.6, rowH]);                %#ok<LAXES>
+    hold(ax_mae, 'on'); grid(ax_mae, 'on');
+    bh = bar(ax_mae, mae, 0.5);
+    errorbar(ax_mae, 1:length(processors), mae, sdAE, ...
+        'k.', 'LineWidth', 1.5, 'CapSize', 8);
+    bh.FaceColor = 'flat';
+    for p = 1:length(processors)
+        bh.CData(p,:) = colors{p};
+    end
+    set(ax_mae, 'XTick', 1:length(processors), 'XTickLabel', processors, ...
+        'TickLabelInterpreter', 'none', 'FontSize', 11);
+    ylabel(ax_mae, 'MAE (mmHg)', 'FontSize', 11);
+    title(ax_mae, 'Mean Absolute Error', 'FontSize', 12);
+
+    % Bias comparison
+    ax_bias = axes('Parent', parentTab, ...
+        'Position', [left1 + colW*0.7, bot3, colW*0.6, rowH]);     %#ok<LAXES>
+    hold(ax_bias, 'on'); grid(ax_bias, 'on');
+    bh2 = bar(ax_bias, bias, 0.5);
+    errorbar(ax_bias, 1:length(processors), bias, sdBias, ...
+        'k.', 'LineWidth', 1.5, 'CapSize', 8);
+    bh2.FaceColor = 'flat';
+    for p = 1:length(processors)
+        bh2.CData(p,:) = colors{p};
+    end
+    yline(ax_bias, 0, 'k--', 'LineWidth', 1);
+    set(ax_bias, 'XTick', 1:length(processors), 'XTickLabel', processors, ...
+        'TickLabelInterpreter', 'none', 'FontSize', 11);
+    ylabel(ax_bias, 'Mean Bias (mmHg)', 'FontSize', 11);
+    title(ax_bias, 'Bias (Detected - GT)', 'FontSize', 12);
+
+    % Success rate (OscSys focus, but show both for completeness)
+    ax_sr = axes('Parent', parentTab, ...
+        'Position', [left1 + colW*1.4, bot3, colW*0.6, rowH]);     %#ok<LAXES>
+    hold(ax_sr, 'on'); grid(ax_sr, 'on');
+    bh3 = bar(ax_sr, succRate, 0.5);
+    bh3.FaceColor = 'flat';
+    for p = 1:length(processors)
+        bh3.CData(p,:) = colors{p};
+        text(ax_sr, p, succRate(p) + 1.5, sprintf('%.0f%%', succRate(p)), ...
+            'HorizontalAlignment', 'center', 'FontSize', 11, 'FontWeight', 'bold');
+    end
+    set(ax_sr, 'XTick', 1:length(processors), 'XTickLabel', processors, ...
+        'TickLabelInterpreter', 'none', 'FontSize', 11);
+    ylabel(ax_sr, 'Success Rate (%)', 'FontSize', 11);
+    title(ax_sr, 'Valid Reading Rate', 'FontSize', 12);
+    ylim(ax_sr, [0 110]);
+    % Note explaining OscSys success criterion
+    annotation(parentTab, 'textbox', [0.01, 0.01, 0.98, 0.03], ...
+        'String', 'Note: OscSys success = reading > 0 (excludes -1 failures).  Ensemble always counted as present when reported.', ...
+        'FontSize', 9, 'EdgeColor', 'none', 'HorizontalAlignment', 'center', ...
+        'Color', [0.4 0.4 0.4]);
 end
 
 % -------------------------------------------------------------------------
@@ -1126,4 +1308,133 @@ end
 
 function color = getTextColor(err)
     if isnan(err) || err < 10; color = 'k'; else; color = 'w'; end
+end
+
+% -------------------------------------------------------------------------
+function createDetectorSubplotsTab(parentTab, runInfo, pageNum, detPerPage)
+% Creates a paginated grid of per-detector subplots.
+% Each cell shows: rawPPG (light red) + filtered PPG (red) on left axis,
+%                  pressure (blue) on right axis,
+%                  green dashed vertical line + circle at detection point,
+%                  blue X markers at AUS_PULSE_HEARD positions.
+
+    if nargin < 3; pageNum   = 1; end
+    if nargin < 4; detPerPage = 20; end
+
+    allDetOnPage = runInfo.detectors;
+    numTotal = length(allDetOnPage);
+    if numTotal == 0; return; end
+
+    % Page slice
+    startIdx = (pageNum - 1) * detPerPage + 1;
+    endIdx   = min(pageNum  * detPerPage, numTotal);
+    detectors = allDetOnPage(startIdx:endIdx);
+    numDet = length(detectors);
+
+    % Grid layout: 5 columns, ceil(numDet/5) rows
+    nCols = min(5, numDet);
+    nRows = ceil(numDet / nCols);
+
+    % Margins / spacing (normalised figure units)
+    lm = 0.01; rm = 0.01;         % left/right margin
+    tm = 0.04; bm = 0.04;         % top/bottom margin
+    hGap = 0.008; vGap = 0.06;   % horizontal/vertical gap between cells
+
+    cellW = (1 - lm - rm - (nCols-1)*hGap) / nCols;
+    cellH = (1 - tm - bm - (nRows-1)*vGap) / nRows;
+
+    % Pre-compute AUS x/y for speed
+    ausX = []; ausPressure = []; ausLeft = [];
+    if runInfo.hasAusPulse && ~isempty(runInfo.pulseHeardIndices)
+        idx         = runInfo.pulseHeardIndices;
+        ausX        = runInfo.time(idx);
+        ausPressure = runInfo.pressure(idx);
+        if runInfo.hasRawPPG
+            ausLeft = runInfo.rawPPG(idx);
+        else
+            ausLeft = runInfo.ppg(idx);
+        end
+    end
+
+    for j = 1:numDet
+        detName = detectors{j};
+
+        % Grid position (row-major, top-to-bottom)
+        col = mod(j-1, nCols) + 1;
+        row = ceil(j / nCols);
+
+        x = lm + (col-1)*(cellW + hGap);
+        y = 1 - tm - row*(cellH) - (row-1)*vGap;
+
+        ax = axes('Parent', parentTab, ...        %#ok<LAXES>
+                  'Position', [x, y, cellW, cellH]);
+
+        % ---- Left axis: PPG signals ----
+        yyaxis(ax, 'left');
+        hold(ax, 'on');
+        if runInfo.hasRawPPG
+            plot(ax, runInfo.time, runInfo.rawPPG, ...
+                 'Color', [1 0.72 0.72], 'LineWidth', 0.6);
+        end
+        plot(ax, runInfo.time, runInfo.ppg, 'r-', 'LineWidth', 0.9);
+        ax.YColor = [0.8 0 0];
+        set(ax, 'YTickLabel', []);
+
+        % ---- Right axis: Pressure ----
+        yyaxis(ax, 'right');
+        plot(ax, runInfo.time, runInfo.pressure, 'b-', 'LineWidth', 1.0);
+        ax.YColor = [0 0.2 0.8];
+        set(ax, 'YTickLabel', []);
+
+        % ---- Detection marker ----
+        detected = false;
+        if isKey(runInfo.detections, detName)
+            det = runInfo.detections(detName);
+            if det.detected && ~isnan(det.time)
+                detected = true;
+                % Vertical line spans both axes via xline
+                xline(ax, det.time, '--', 'Color', [0 0.7 0], 'LineWidth', 1.4);
+                % Circle on pressure trace
+                yyaxis(ax, 'right');
+                plot(ax, det.time, det.pressure, 'o', ...
+                     'Color', [0 0.65 0], 'MarkerFaceColor', [0.4 1 0.4], ...
+                     'MarkerSize', 5, 'LineWidth', 1.2);
+            end
+        end
+
+        % ---- AUS markers (X on pressure axis) ----
+        if ~isempty(ausX)
+            yyaxis(ax, 'right');
+            plot(ax, ausX, ausPressure, 'bx', 'MarkerSize', 7, 'LineWidth', 1.8);
+        end
+
+        % ---- Title ----
+        % Build compact title: name + detected pressure (+ error if GT available)
+        if detected
+            if runInfo.hasGroundTruth && ~isnan(det.error)
+                ttl = sprintf('%s\n%.0f mmHg (err=%.1f)', ...
+                    strrep(detName,'_','\_'), det.pressure, det.error);
+            else
+                ttl = sprintf('%s\n%.0f mmHg', strrep(detName,'_','\_'), det.pressure);
+            end
+            titleColor = [0 0.5 0];
+        else
+            ttl = sprintf('%s\n—', strrep(detName,'_','\_'));
+            titleColor = [0.6 0 0];
+        end
+        title(ax, ttl, 'FontSize', 6.5, 'Color', titleColor, ...
+              'Interpreter', 'tex', 'FontWeight', 'normal');
+
+        % Minimal tick clutter
+        set(ax, 'XTickLabel', [], 'FontSize', 6, 'TickLength', [0.01 0.01]);
+        grid(ax, 'on'); ax.GridAlpha = 0.2;
+    end
+
+    % Page header annotation
+    annotation(parentTab, 'textbox', [0, 0.965, 1, 0.03], ...
+        'String', sprintf('Detectors %d–%d of %d   |   %s   |   Green line = detection   Blue × = AUS pulse heard', ...
+            startIdx, endIdx, numTotal, strrep(runInfo.displayName, '_', '\_')), ...
+        'FontSize', 8, 'EdgeColor', 'none', ...
+        'HorizontalAlignment', 'center', 'Color', [0.25 0.25 0.25], ...
+        'Interpreter', 'tex');
 end
