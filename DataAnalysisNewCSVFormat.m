@@ -198,6 +198,19 @@ for fileIdx = 1:length(files)
             fprintf('  *** FOUND SBP REFERENCE: %d mmHg from filename ***\n', runInfo.sbpReference);
         end
 
+        % Omron reading from filename: e.g. 120_80_results or 130_85_results
+        runInfo.hasOmron  = false;
+        runInfo.omronSBP  = NaN;
+        runInfo.omronDBP  = NaN;
+        omronTok = regexp(fname, '(\d{2,3})_(\d{2,3})_results$', 'tokens');
+        if ~isempty(omronTok)
+            runInfo.hasOmron = true;
+            runInfo.omronSBP = str2double(omronTok{1}{1});
+            runInfo.omronDBP = str2double(omronTok{1}{2});
+            fprintf('  *** FOUND OMRON: SBP=%d  DBP=%d mmHg ***\n', ...
+                runInfo.omronSBP, runInfo.omronDBP);
+        end
+
         % Person name
         runInfo.personName = '';
         targetNames = {'Harleen','Brendan','Taegon','Alex','Alexander','Kali','Nina'};
@@ -319,6 +332,31 @@ fprintf('Found %d run(s) with SBP reference in filename.\n\n', runsWithSBPRef);
 runsWithBPM = sum(cellfun(@(r) isfield(r,'hasBPM') && r.hasBPM, allRuns));
 fprintf('Found %d run(s) with BPM (heart rate) data.\n\n', runsWithBPM);
 
+%% Ensemble ±5 / ±10 mmHg summary (always printed)
+runsWithGT_list = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
+if ~isempty(runsWithGT_list)
+    ensErrors = cellfun(@(r) ...
+        ternary(isfield(r,'postValues') && isfield(r.postValues,'Ensemble'), ...
+                r.postValues.Ensemble - r.groundTruthPressure, NaN), ...
+        runsWithGT_list);
+    validEns = ensErrors(~isnan(ensErrors));
+    nEns     = length(validEns);
+    if nEns > 0
+        n5  = sum(abs(validEns) <= 5);
+        n10 = sum(abs(validEns) <= 10);
+        fprintf('=== ENSEMBLE vs GROUND TRUTH SUMMARY (%d / %d runs have Ensemble) ===\n', ...
+            nEns, length(runsWithGT_list));
+        fprintf('  Within ±5  mmHg : %d / %d  (%.1f%%)\n', n5,  nEns, n5/nEns*100);
+        fprintf('  Within ±10 mmHg : %d / %d  (%.1f%%)\n', n10, nEns, n10/nEns*100);
+        fprintf('  MAE              : %.2f mmHg\n', mean(abs(validEns)));
+        fprintf('  Bias             : %.2f mmHg\n\n', mean(validEns));
+        fprintf('  95th pct error   : %.2f mmHg\n',          prctile(validEns, 95));
+        fprintf('  5th pct error    : %.2f mmHg\n\n',        prctile(validEns, 5));
+    else
+        fprintf('=== ENSEMBLE: no valid readings found vs ground truth ===\n\n');
+    end
+end
+
 %% Create Main Tabbed Figure
 screenSize = get(0,'ScreenSize');
 figWidth   = 1600; figHeight = 900;
@@ -342,6 +380,10 @@ createBLAnalysisTab(blTab, allRuns, allDetectors);
 if runsWithGroundTruth > 0
     blTab_v2 = uitab(tabGroup, 'Title', 'Baseline Analysis Error from Ground Truth');
     createBLAnalysisTab_v2(blTab_v2, allRuns, allDetectors);
+    
+    % ADD THIS:
+    ensRunTab = uitab(tabGroup, 'Title', 'Ensemble Error Per Run');
+    createEnsemblePerRunTab(ensRunTab, allRuns);
 end
 % 
 % % Derivative (DRV) Analysis
@@ -387,6 +429,19 @@ runsWithBPMList = allRuns(cellfun(@(r) isfield(r,'hasBPM') && r.hasBPM, allRuns)
 if ~isempty(runsWithBPMList) && runsWithGroundTruth > 0
     hrTab = uitab(tabGroup, 'Title', 'Heart Rate Analysis');
     createHeartRateAnalysisTab(hrTab, allRuns, allDetectors);
+end
+
+% Deflation Rate Accuracy Analysis
+if runsWithGroundTruth > 0
+    deflTab = uitab(tabGroup, 'Title', 'Deflation Rate Analysis');
+    createDeflationRateAnalysisTab(deflTab, allRuns, allDetectors);
+end
+
+% Omron Comparison tab
+runsWithOmron = allRuns(cellfun(@(r) isfield(r,'hasOmron') && r.hasOmron, allRuns));
+if ~isempty(runsWithOmron)
+    omronTab = uitab(tabGroup, 'Title', 'Omron Comparison');
+    createOmronComparisonTab(omronTab, runsWithOmron);
 end
 
 % Ground Truth paginated ranking tabs
@@ -813,10 +868,20 @@ function createPostProcessorGTTab(parentTab, runsWithGT)
     fprintf('\n=== POST-PROCESSOR GROUND TRUTH ANALYSIS ===\n');
     fprintf('Total runs with GT: %d\n\n', numRuns);
     for p = 1:length(processors)
+        validMask = ppValid(p,:);
+        ae        = absErrors(p, validMask);
+        e         = errors(p, validMask);
+        n         = sum(validMask);
+        n5        = sum(ae <= 5);
+        n10       = sum(ae <= 10);
+
         fprintf('%s:\n', processors{p});
-        fprintf('  Valid readings : %d / %d  (%.1f%%)\n', nValid(p), numRuns, succRate(p));
+        fprintf('  Valid readings : %d / %d  (%.1f%%)\n', n, numRuns, succRate(p));
         fprintf('  MAE            : %.2f +/- %.2f mmHg\n', mae(p), sdAE(p));
         fprintf('  Bias           : %.2f +/- %.2f mmHg\n', bias(p), sdBias(p));
+        fprintf('  95th pct error : %.2f mmHg\n',          prctile(e, 95));
+        fprintf('  Within ±5  mmHg: %d / %d  (%.1f%%)\n', n5,  n, n5/max(n,1)*100);
+        fprintf('  Within ±10 mmHg: %d / %d  (%.1f%%)\n', n10, n, n10/max(n,1)*100);
         fprintf('\n');
     end
 
@@ -1438,3 +1503,621 @@ function createDetectorSubplotsTab(parentTab, runInfo, pageNum, detPerPage)
         'HorizontalAlignment', 'center', 'Color', [0.25 0.25 0.25], ...
         'Interpreter', 'tex');
 end
+
+% -------------------------------------------------------------------------
+% Omron vs Reference Comparison Tab
+%   Compares Omron SBP against:
+%     (a) AUS ground truth pressure  (if available)
+%     (b) SBP filename reference     (if available)
+%   Shows: scatter, Bland-Altman, error histogram, summary stats table.
+% -------------------------------------------------------------------------
+function createOmronComparisonTab(parentTab, runsWithOmron)
+
+    numRuns = length(runsWithOmron);
+
+    % ---- Collect Omron values and references ---------------------------
+    omronSBP  = nan(1, numRuns);
+    gtPres    = nan(1, numRuns);   % AUS ground truth
+    sbpRef    = nan(1, numRuns);   % filename SBP reference
+    runLabels = cell(1, numRuns);
+
+omronSBP   = nan(1, numRuns);
+    gtPres     = nan(1, numRuns);
+    sbpRef     = nan(1, numRuns);
+    ensVal     = nan(1, numRuns);   % NEW
+    oscSysVal  = nan(1, numRuns);   % NEW
+    runLabels  = cell(1, numRuns);
+
+    for i = 1:numRuns
+        r = runsWithOmron{i};
+        omronSBP(i) = r.omronSBP;
+        if isfield(r,'hasGroundTruth') && r.hasGroundTruth
+            gtPres(i) = r.groundTruthPressure;
+        end
+        if isfield(r,'hasSBPReference') && r.hasSBPReference
+            sbpRef(i) = r.sbpReference;
+        end
+        % NEW: grab post-processor values
+        if isfield(r,'postValues')
+            if isfield(r.postValues,'Ensemble')
+                ensVal(i) = r.postValues.Ensemble;
+            end
+            if isfield(r.postValues,'OscSys') && r.postValues.OscSys > 0
+                oscSysVal(i) = r.postValues.OscSys;   % exclude -1 failures
+            end
+        end
+        [~, fn, ~] = fileparts(r.filename);
+        runLabels{i} = fn;
+    end
+
+    % ---- Determine which references are available ----------------------
+    hasGT  = any(~isnan(gtPres));
+    hasSBP = any(~isnan(sbpRef));
+    numPanelCols = hasGT + hasSBP;   % 1 or 2 comparison columns
+    if numPanelCols == 0
+        annotation(parentTab,'textbox',[0.1,0.4,0.8,0.2], ...
+            'String','No ground truth or SBP reference available to compare Omron against.', ...
+            'FontSize',14,'HorizontalAlignment','center','EdgeColor','none');
+        return;
+    end
+
+    % ---- Helper: compute stats for one reference vector ----------------
+    function s = computeStats(omron, ref)
+        mask      = ~isnan(omron) & ~isnan(ref);
+        diff_     = omron(mask) - ref(mask);
+        s.n       = sum(mask);
+        s.mae     = mean(abs(diff_));
+        s.bias    = mean(diff_);
+        s.sd      = std(diff_);
+        s.rmse    = sqrt(mean(diff_.^2));
+        s.lo95    = s.bias - 1.96*s.sd;   % Bland-Altman LoA
+        s.hi95    = s.bias + 1.96*s.sd;
+        s.omron   = omron(mask);
+        s.ref     = ref(mask);
+        s.diff    = diff_;
+        s.mean_   = (omron(mask) + ref(mask)) / 2;
+        s.labels  = runLabels(mask);
+    end
+
+    refList   = {};
+    statsList = {};
+    colorList = {[0.2 0.5 0.9], [0.85 0.35 0.1]};
+
+    if hasGT
+        refList{end+1}   = 'AUS Ground Truth';
+        statsList{end+1} = computeStats(omronSBP, gtPres);
+    end
+    if hasSBP
+        refList{end+1}   = 'Filename SBP Reference';
+        statsList{end+1} = computeStats(omronSBP, sbpRef);
+    end
+
+    % ---- Print console summary ----------------------------------------
+    fprintf('\n=== OMRON COMPARISON SUMMARY (%d runs) ===\n', numRuns);
+    for p = 1:length(refList)
+        s = statsList{p};
+        fprintf('vs %s  (n=%d):\n', refList{p}, s.n);
+        fprintf('  MAE   : %.2f mmHg\n', s.mae);
+        fprintf('  Bias  : %.2f mmHg  (Omron - Reference)\n', s.bias);
+        fprintf('  SD    : %.2f mmHg\n', s.sd);
+        fprintf('  RMSE  : %.2f mmHg\n', s.rmse);
+        fprintf('  95%% LoA: [%.2f, %.2f] mmHg\n', s.lo95, s.hi95);
+        fprintf('\n');
+    end
+
+    % NEW: three-way ±5 mmHg comparison vs auscultatory ground truth
+    gtMask = ~isnan(gtPres);
+    if any(gtMask)
+        fprintf('--- Within ±5 mmHg of Auscultatory Ground Truth ---\n');
+        fprintf('%-20s  %s\n', 'Source', 'Within ±5 mmHg');
+        fprintf('%s\n', repmat('-',1,40));
+
+        sources = {'Omron SBP', 'Our Ensemble', 'Our OscSys'};
+        vals    = {omronSBP,    ensVal,          oscSysVal};
+
+        for k = 1:length(sources)
+            v    = vals{k};
+            mask = gtMask & ~isnan(v);
+            n    = sum(mask);
+            if n == 0
+                fprintf('%-20s  no data\n', sources{k});
+                continue;
+            end
+            nWithin = sum(abs(v(mask) - gtPres(mask)) <= 5);
+            fprintf('%-20s  %d / %d  (%.1f%%)\n', ...
+                sources{k}, nWithin, n, nWithin/n*100);
+        end
+        fprintf('\n');
+
+        % Also print per-run detail so you can see where they agree/disagree
+        fprintf('--- Per-run detail (GT | Omron err | Ensemble err | OscSys err) ---\n');
+        fprintf('%-45s  %6s  %10s  %14s  %12s\n', ...
+            'Run', 'GT', 'Omron err', 'Ensemble err', 'OscSys err');
+        fprintf('%s\n', repmat('-',1,95));
+        runIdx = find(gtMask);
+        for i = 1:length(runIdx)
+            idx = runIdx(i);
+            omErr  = omronSBP(idx)  - gtPres(idx);
+            enErr  = ensVal(idx)    - gtPres(idx);
+            osErr  = oscSysVal(idx) - gtPres(idx);
+            flag   = @(e) char('  ' * ~(abs(e)<=5) + '✓ ' * (abs(e)<=5 && ~isnan(e)));
+            fmt    = @(e) [flag(e) sprintf('%+.1f', e)];
+            omStr  = fmt(omErr);
+            enStr  = ternary(isnan(enErr), '      —', fmt(enErr));
+            osStr  = ternary(isnan(osErr), '      —', fmt(osErr));
+            fprintf('%-45s  %6.1f  %10s  %14s  %12s\n', ...
+                runLabels{idx}, gtPres(idx), omStr, enStr, osStr);
+        end
+        fprintf('\n');
+    end
+
+    % ---- Layout --------------------------------------------------------
+    % Row 1: Scatter (identity line)
+    % Row 2: Bland-Altman
+    % Row 3: Error histogram  +  Summary stats text box
+    rowH   = 0.25;  rowGap = 0.05;
+    bot    = [0.70, 0.40, 0.08];   % bottom of rows 1,2,3
+
+    colW   = 0.38;
+    colGap = 0.16;
+    leftPos = @(col) 0.07 + (col-1)*(colW + colGap);
+
+    for p = 1:length(refList)
+        s     = statsList{p};
+        clr   = colorList{p};
+        col   = p;
+        refName = refList{p};
+
+        % ---- Row 1: Scatter ----------------------------------------
+        ax = axes('Parent', parentTab, ...
+            'Position', [leftPos(col), bot(1), colW, rowH]); %#ok<LAXES>
+        hold(ax,'on'); grid(ax,'on');
+
+        scatter(ax, s.ref, s.omron, 50, clr, 'filled', 'MarkerFaceAlpha', 0.75);
+
+        allVals = [s.ref(:); s.omron(:)];
+        allVals = allVals(isfinite(allVals));
+        if isempty(allVals)
+            lo = 60; hi = 180;
+        else
+            lo = min(allVals) - 5;
+            hi = max(allVals) + 5;
+        end
+        if lo >= hi; lo = lo - 10; hi = hi + 10; end
+        plot(ax, [lo hi], [lo hi], 'k--', 'LineWidth', 1.2);   % identity
+        % ±5 and ±10 mmHg bands
+        fill(ax, [lo hi hi lo], [lo-5 hi-5 hi+5 lo+5], ...
+            [0.9 1 0.9], 'EdgeColor','none', 'FaceAlpha', 0.35);
+        fill(ax, [lo hi hi lo], [lo-10 hi-10 hi+10 lo+10], ...
+            [1 0.95 0.85], 'EdgeColor','none', 'FaceAlpha', 0.25);
+
+        % Re-scatter on top of bands
+        scatter(ax, s.ref, s.omron, 50, clr, 'filled', 'MarkerFaceAlpha', 0.85);
+
+        % Data tip-style labels
+        for k = 1:s.n
+            text(ax, s.ref(k), s.omron(k), sprintf('  %s', s.labels{k}), ...
+                'FontSize', 6, 'Color', [0.3 0.3 0.3], 'Interpreter','none');
+        end
+
+        xlabel(ax, sprintf('%s (mmHg)', refName), 'FontSize', 11);
+        ylabel(ax, 'Omron SBP (mmHg)', 'FontSize', 11);
+        title(ax, sprintf('Omron vs %s  (n=%d)', refName, s.n), 'FontSize', 12);
+        annStr = sprintf('MAE=%.1f  Bias=%.1f  SD=%.1f mmHg', s.mae, s.bias, s.sd);
+        text(ax, 0.03, 0.97, annStr, 'Units','normalized', ...
+            'VerticalAlignment','top','FontSize', 10, ...
+            'BackgroundColor',[1 1 1 0.7],'EdgeColor',[0.7 0.7 0.7]);
+        xlim(ax,[lo hi]); ylim(ax,[lo hi]);
+        axis(ax,'square');
+
+        % ---- Row 2: Bland-Altman -----------------------------------
+        ax2 = axes('Parent', parentTab, ...
+            'Position', [leftPos(col), bot(2), colW, rowH]); %#ok<LAXES>
+        hold(ax2,'on'); grid(ax2,'on');
+
+        scatter(ax2, s.mean_, s.diff, 50, clr, 'filled', 'MarkerFaceAlpha', 0.75);
+        yline(ax2, s.bias,  '-',  'Color', clr,       'LineWidth', 2.0, ...
+            'Label', sprintf('Bias=%.1f',  s.bias),  'LabelVerticalAlignment','bottom');
+        yline(ax2, s.hi95, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.4, ...
+            'Label', sprintf('+1.96SD=%.1f', s.hi95),'LabelVerticalAlignment','bottom');
+        yline(ax2, s.lo95, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.4, ...
+            'Label', sprintf('-1.96SD=%.1f', s.lo95),'LabelVerticalAlignment','top');
+        yline(ax2, 0, 'k:', 'LineWidth', 1.0);
+
+        for k = 1:s.n
+            text(ax2, s.mean_(k), s.diff(k), sprintf('  %s', s.labels{k}), ...
+                'FontSize', 6, 'Color', [0.3 0.3 0.3], 'Interpreter','none');
+        end
+
+        xlabel(ax2, 'Mean of Omron & Reference (mmHg)', 'FontSize', 11);
+        ylabel(ax2, 'Omron − Reference (mmHg)',          'FontSize', 11);
+        title(ax2,  sprintf('Bland-Altman: Omron vs %s', refName), 'FontSize', 12);
+
+        % ---- Row 3 col p: Histogram --------------------------------
+        ax3 = axes('Parent', parentTab, ...
+            'Position', [leftPos(col), bot(3), colW*0.55, rowH]); %#ok<LAXES>
+        hold(ax3,'on'); grid(ax3,'on');
+
+        if s.n > 1
+            histogram(ax3, s.diff, 'BinWidth', 5, ...
+                'FaceColor', clr, 'FaceAlpha', 0.7, 'EdgeColor','w');
+        else
+            bar(ax3, s.diff, 0.4, 'FaceColor', clr, 'FaceAlpha', 0.7);
+        end
+        xline(ax3, s.bias, '-',  'Color', 'k',          'LineWidth', 2.0);
+        xline(ax3, 0,      '--', 'Color', [0.5 0.5 0.5],'LineWidth', 1.2);
+
+        xlabel(ax3, 'Error (mmHg)', 'FontSize', 11);
+        ylabel(ax3, 'Count',        'FontSize', 11);
+        title(ax3,  'Error Distribution', 'FontSize', 12);
+
+        % ---- Row 3 col p: Stats text box ---------------------------
+        statsStr = {
+            sprintf('n = %d', s.n),
+            sprintf('MAE  = %.2f mmHg', s.mae),
+            sprintf('Bias = %.2f mmHg', s.bias),
+            sprintf('SD   = %.2f mmHg', s.sd),
+            sprintf('RMSE = %.2f mmHg', s.rmse),
+            sprintf('95%% LoA: [%.1f, %.1f]', s.lo95, s.hi95),
+            '',
+            sprintf('Within ±5 mmHg:  %d/%d (%.0f%%)', ...
+                sum(abs(s.diff)<=5), s.n, sum(abs(s.diff)<=5)/s.n*100),
+            sprintf('Within ±10 mmHg: %d/%d (%.0f%%)', ...
+                sum(abs(s.diff)<=10), s.n, sum(abs(s.diff)<=10)/s.n*100),
+        };
+
+        annotation(parentTab, 'textbox', ...
+            [leftPos(col) + colW*0.60, bot(3), colW*0.40, rowH], ...
+            'String', statsStr, ...
+            'FontSize', 10, 'FontName', 'FixedWidth', ...
+            'EdgeColor', [0.75 0.75 0.75], 'BackgroundColor', [0.97 0.97 0.97], ...
+            'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left', ...
+            'Interpreter', 'none');
+    end
+
+    % ---- Footer note --------------------------------------------------
+    annotation(parentTab, 'textbox', [0.01, 0.01, 0.98, 0.025], ...
+        'String', ['Omron SBP parsed from filename pattern  NNN_NN_results.csv  |  ' ...
+                   'Green band = ±5 mmHg  |  Orange band = ±10 mmHg  |  ' ...
+                   'Bland-Altman: positive bias = Omron reads higher than reference'], ...
+        'FontSize', 8.5, 'EdgeColor','none', ...
+        'HorizontalAlignment','center','Color',[0.4 0.4 0.4],'Interpreter','none');
+end
+
+function out = ternary(cond, a, b)
+    if cond; out = a; else; out = b; end
+end
+% -------------------------------------------------------------------------
+% Deflation Rate Accuracy Analysis Tab
+%   For each run with ground truth, computes cuff deflation rate (mmHg/s)
+%   via a linear fit over the pressure > 80 mmHg region.
+%   Bins runs by deflation rate and reports MAE vs ground truth per bin.
+%   Bar chart shows MAE +/- SD with run count and detection count annotated.
+% -------------------------------------------------------------------------
+function createDeflationRateAnalysisTab(parentTab, allRuns, allDetectors)
+
+    runsWithGT = allRuns(cellfun(@(r) r.hasGroundTruth, allRuns));
+    if isempty(runsWithGT)
+        annotation(parentTab, 'textbox', [0.2, 0.4, 0.6, 0.2], ...
+            'String', 'No runs with ground truth found.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+
+    numRuns   = length(runsWithGT);
+    numDet    = length(allDetectors);
+
+    % ---- Deflation rate bins (mmHg/s) ----------------------------------
+    binEdges  = [0, 1, 2, 2.5, 3.5, 4.0, 5.0];
+    binLabels = {'0–1', '1–2', '2–2.5', '2.5–3.5', '3.5–4.0', '4–5'};
+    nBins     = length(binLabels);
+
+    % ---- Compute deflation rate per run via linear fit over P > 80 -----
+    deflRate = nan(1, numRuns);
+    for i = 1:numRuns
+        r = runsWithGT{i};
+        if isempty(r.time) || isempty(r.pressure); continue; end
+    
+        [~, peakIdx] = max(r.pressure);          % find inflation peak
+        mask = false(size(r.pressure));
+        mask(peakIdx:end) = r.pressure(peakIdx:end) > 80;  % deflation only, P > 80
+    
+        if sum(mask) < 4; continue; end          % need enough points to fit
+        t = r.time(mask);
+        p = double(r.pressure(mask));
+        c = polyfit(t(:), p(:), 1);             % p = c(1)*t + c(2)
+        deflRate(i) = -c(1);                    % positive = pressure falling
+    end
+
+    % ---- Bin each run --------------------------------------------------
+    % binAbsErrors{b}  — flat vector of all |det_pressure - GT| for runs in bin b
+    % binRunCount(b)   — how many runs fell in bin b
+    binAbsErrors = cell(1, nBins);
+    binRunCount  = zeros(1, nBins);
+    for b = 1:nBins; binAbsErrors{b} = []; end
+
+    for i = 1:numRuns
+        if isnan(deflRate(i)); continue; end
+
+        % Assign to bin (last bin is inclusive on right edge)
+        if deflRate(i) >= binEdges(end)
+            b = nBins;
+        else
+            b = find(deflRate(i) >= binEdges(1:end-1) & ...
+                     deflRate(i) <  binEdges(2:end),   1);
+        end
+        if isempty(b); continue; end
+
+        binRunCount(b) = binRunCount(b) + 1;
+
+        for j = 1:numDet
+            detName = allDetectors{j};
+            if isKey(runsWithGT{i}.detections, detName)
+                det = runsWithGT{i}.detections(detName);
+                if det.detected && ~isnan(det.absError)
+                    binAbsErrors{b}(end+1) = det.absError;
+                end
+            end
+        end
+    end
+
+    % ---- Summary stats per bin -----------------------------------------
+    binMAE    = nan(1, nBins);
+    binStd    = nan(1, nBins);
+    binNDet   = zeros(1, nBins);   % total detections (runs × detectors)
+    for b = 1:nBins
+        if ~isempty(binAbsErrors{b})
+            binMAE(b)  = mean(binAbsErrors{b});
+            binStd(b)  = std(binAbsErrors{b});
+            binNDet(b) = length(binAbsErrors{b});
+        end
+    end
+
+    % ---- Console output ------------------------------------------------
+    fprintf('\n=== DEFLATION RATE ACCURACY ANALYSIS ===\n');
+    fprintf('Deflation rate = negative slope of linear fit to Pressure vs Time\n');
+    fprintf('Region used: Pressure > 80 mmHg\n\n');
+    fprintf('Deflation rates found per run:\n');
+    for i = 1:numRuns
+        [~, fn, ~] = fileparts(runsWithGT{i}.filename);
+        fprintf('  %-40s  %.2f mmHg/s\n', fn, deflRate(i));
+    end
+    fprintf('\n%-12s  %6s  %12s  %8s  %8s\n', ...
+        'Bin (mmHg/s)', 'Runs', 'Detections', 'MAE', 'SD');
+    fprintf('%s\n', repmat('-', 1, 52));
+    for b = 1:nBins
+        if ~isnan(binMAE(b))
+            fprintf('%-12s  %6d  %12d  %8.2f  %8.2f\n', ...
+                binLabels{b}, binRunCount(b), binNDet(b), binMAE(b), binStd(b));
+        else
+            fprintf('%-12s  %6d  %12d  %8s  %8s\n', ...
+                binLabels{b}, 0, 0, '—', '—');
+        end
+    end
+    fprintf('\n');
+
+    % ---- Choose a soft colour palette ----------------------------------
+    baseColor  = [0.25 0.50 0.82];   % blue for bars
+    emptyColor = [0.82 0.82 0.82];   % grey for empty bins
+
+    % ---- Upper axes: MAE bar chart -------------------------------------
+    ax1 = axes('Parent', parentTab, 'Position', [0.09, 0.38, 0.86, 0.52]);
+    hold(ax1, 'on'); grid(ax1, 'on'); box(ax1, 'on');
+
+    barX    = 1:nBins;
+    barCols = repmat(baseColor, nBins, 1);
+    for b = 1:nBins
+        if isnan(binMAE(b))
+            barCols(b,:) = emptyColor;
+        end
+    end
+
+    maeForBar = binMAE;
+    maeForBar(isnan(maeForBar)) = 0;
+
+    bh = bar(ax1, barX, maeForBar, 0.60);
+    bh.FaceColor = 'flat';
+    bh.CData     = barCols;
+    bh.EdgeColor = 'none';
+
+    % Error bars only where we have data
+    validMask = ~isnan(binMAE);
+    if any(validMask)
+        errorbar(ax1, barX(validMask), binMAE(validMask), binStd(validMask), ...
+            'k.', 'LineWidth', 1.6, 'CapSize', 9);
+    end
+
+    % Annotate each bar: MAE value + run count + detection count
+    yMax = max(binMAE + binStd, [], 'omitnan');
+    if isnan(yMax) || yMax == 0; yMax = 10; end
+
+    for b = 1:nBins
+        if ~isnan(binMAE(b))
+            topY = binMAE(b) + binStd(b);
+            % MAE label just above error bar
+            text(ax1, b, topY + yMax*0.03, ...
+                sprintf('%.1f mmHg', binMAE(b)), ...
+                'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+                'FontSize', 10, 'FontWeight', 'bold', 'Color', [0.10 0.10 0.10]);
+        else
+            text(ax1, b, yMax*0.05, 'no data', ...
+                'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+                'FontSize', 9, 'Color', [0.55 0.55 0.55], 'FontAngle', 'italic');
+        end
+    end
+
+    % Reference line at 5 and 10 mmHg
+    yline(ax1,  5, '--', 'Color', [0.20 0.70 0.20], 'LineWidth', 1.3, ...
+        'Label', '5 mmHg', 'LabelVerticalAlignment', 'bottom', 'FontSize', 9);
+    yline(ax1, 10, '--', 'Color', [0.85 0.40 0.10], 'LineWidth', 1.3, ...
+        'Label', '10 mmHg','LabelVerticalAlignment', 'bottom', 'FontSize', 9);
+
+    set(ax1, 'XTick', barX, 'XTickLabel', binLabels, ...
+        'FontSize', 11, 'TickLabelInterpreter', 'none');
+    xlabel(ax1, 'Cuff Deflation Rate  (mmHg/s)', 'FontSize', 12);
+    ylabel(ax1, 'Mean Absolute Error vs Ground Truth  (mmHg)', 'FontSize', 12);
+    title(ax1, ...
+        'Systolic BP Detection Accuracy by Cuff Deflation Rate  [region: Pressure > 80 mmHg]', ...
+        'FontSize', 13);
+    ylim(ax1, [0, max(yMax * 1.30, 12)]);
+
+    % ---- Lower axes: run count + detection count bar chart -------------
+    ax2 = axes('Parent', parentTab, 'Position', [0.09, 0.10, 0.86, 0.22]);
+    hold(ax2, 'on'); grid(ax2, 'on'); box(ax2, 'on');
+
+    bh2 = bar(ax2, barX, binRunCount, 0.45, 'FaceColor', [0.30 0.70 0.45], 'EdgeColor','none');
+
+    % Label each bar with the run count
+    for b = 1:nBins
+        if binRunCount(b) > 0
+            text(ax2, b, binRunCount(b) + 0.06, sprintf('%d', binRunCount(b)), ...
+                'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+                'FontSize', 10, 'FontWeight', 'bold', 'Color', [0.10 0.10 0.10]);
+        end
+    end
+
+    set(ax2, 'XTick', barX, 'XTickLabel', binLabels, ...
+        'FontSize', 11, 'TickLabelInterpreter', 'none');
+    xlabel(ax2, 'Cuff Deflation Rate  (mmHg/s)', 'FontSize', 12);
+    ylabel(ax2, 'Number of Runs', 'FontSize', 12);
+    title(ax2, 'Run Count per Deflation Rate Bin', 'FontSize', 12);
+    ylim(ax2, [0, max(binRunCount) * 1.30 + 1]);
+
+    % ---- Footer note ---------------------------------------------------
+    annotation(parentTab, 'textbox', [0.01, 0.003, 0.98, 0.025], ...
+        'String', [ ...
+            'Deflation rate = magnitude of linear regression slope of Pressure vs Time ' ...
+            'over the Pressure > 80 mmHg window.  ' ...
+            'MAE is averaged across ALL algorithm detectors in each bin.  ' ...
+            'Error bars = ±1 SD across individual detector readings.'], ...
+        'FontSize', 8.5, 'EdgeColor', 'none', ...
+        'HorizontalAlignment', 'center', 'Color', [0.4 0.4 0.4], ...
+        'Interpreter', 'none');
+end
+
+function createEnsemblePerRunTab(parentTab, allRuns)
+
+    validRuns = allRuns(cellfun(@(r) ...
+        r.hasGroundTruth && ...
+        isfield(r, 'postValues') && ...
+        isfield(r.postValues, 'Ensemble'), allRuns));
+
+    if isempty(validRuns)
+        annotation(parentTab, 'textbox', [0.2, 0.4, 0.6, 0.2], ...
+            'String', 'No runs with both ground truth and Ensemble reading found.', ...
+            'FontSize', 14, 'HorizontalAlignment', 'center', 'EdgeColor', 'none');
+        return;
+    end
+
+    numRuns = length(validRuns);
+    errors  = nan(1, numRuns);
+    for i = 1:numRuns
+        errors(i) = validRuns{i}.postValues.Ensemble - validRuns{i}.groundTruthPressure;
+    end
+
+    runLabels = arrayfun(@(i) sprintf('Run%d', i), 1:numRuns, 'UniformOutput', false);
+
+    % Colour each bar: green if within ±5, yellow within ±10, red otherwise
+    barColors = zeros(numRuns, 3);
+    for i = 1:numRuns
+        ae = abs(errors(i));
+        if ae <= 5
+            barColors(i,:) = [0.20 0.72 0.28];
+        elseif ae <= 10
+            barColors(i,:) = [0.95 0.75 0.10];
+        else
+            barColors(i,:) = [0.85 0.22 0.18];
+        end
+    end
+
+    % ---- Summary stats -------------------------------------------------
+    mae  = mean(abs(errors), 'omitnan');
+    bias = mean(errors,      'omitnan');
+    p5   = prctile(errors,  5);
+    p95  = prctile(errors, 95);
+    n5   = sum(abs(errors) <= 5);
+    n10  = sum(abs(errors) <= 10);
+
+    % ---- Top: per-run bar chart ----------------------------------------
+    ax = axes('Parent', parentTab, 'Position', [0.08, 0.38, 0.88, 0.52]);
+    hold(ax, 'on'); grid(ax, 'on'); box(ax, 'on');
+
+    bh = bar(ax, 1:numRuns, errors, 0.65);
+    bh.FaceColor = 'flat';
+    bh.CData     = barColors;
+    bh.EdgeColor = 'none';
+
+    yline(ax,   0, 'k-',  'LineWidth', 1.5);
+    yline(ax,   5, '--', 'Color', [0.20 0.72 0.28], 'LineWidth', 1.2, ...
+        'Label', '+5 mmHg',  'LabelVerticalAlignment', 'bottom', 'FontSize', 9);
+    yline(ax,  -5, '--', 'Color', [0.20 0.72 0.28], 'LineWidth', 1.2, ...
+        'Label', '-5 mmHg',  'LabelVerticalAlignment', 'top',    'FontSize', 9);
+    yline(ax,  10, '--', 'Color', [0.95 0.75 0.10], 'LineWidth', 1.2, ...
+        'Label', '+10 mmHg', 'LabelVerticalAlignment', 'bottom', 'FontSize', 9);
+    yline(ax, -10, '--', 'Color', [0.95 0.75 0.10], 'LineWidth', 1.2, ...
+        'Label', '-10 mmHg', 'LabelVerticalAlignment', 'top',    'FontSize', 9);
+
+    for i = 1:numRuns
+        if errors(i) >= 0
+            va = 'bottom'; yOff = 0.3;
+        else
+            va = 'top';    yOff = -0.3;
+        end
+        text(ax, i, errors(i) + yOff, sprintf('%.1f', errors(i)), ...
+            'HorizontalAlignment', 'center', 'VerticalAlignment', va, ...
+            'FontSize', 8, 'FontWeight', 'bold', 'Color', [0.15 0.15 0.15]);
+    end
+
+    title(ax, sprintf('Ensemble Error per Run  |  MAE=%.1f mmHg  Bias=%.1f mmHg  5th/95th=[%.1f, %.1f]  ±5: %d/%d  ±10: %d/%d', ...
+        mae, bias, p5, p95, n5, numRuns, n10, numRuns), 'FontSize', 11);
+    set(ax, 'XTick', 1:numRuns, 'XTickLabel', runLabels, ...
+        'XTickLabelRotation', 45, 'FontSize', 10, 'TickLabelInterpreter', 'none');
+    xlabel(ax, 'Run',                   'FontSize', 12);
+    ylabel(ax, 'Ensemble Error (mmHg)', 'FontSize', 12);
+
+    % ---- Bottom left: error distribution histogram ---------------------
+    histColor = [0.25 0.50 0.82];
+
+    ax2 = axes('Parent', parentTab, 'Position', [0.08, 0.08, 0.42, 0.22]);
+    hold(ax2, 'on'); grid(ax2, 'on'); box(ax2, 'on');
+
+    if numRuns > 1
+        histogram(ax2, errors, 'BinWidth', 5, ...
+            'FaceColor', histColor, 'FaceAlpha', 0.75, 'EdgeColor', 'w');
+    else
+        bar(ax2, errors, 0.4, 'FaceColor', histColor, 'FaceAlpha', 0.75);
+    end
+    xline(ax2, bias, '-',  'Color', 'k',           'LineWidth', 2.0, ...
+        'Label', sprintf('Bias=%.1f', bias), 'LabelVerticalAlignment', 'bottom', 'FontSize', 9);
+    xline(ax2, 0,    '--', 'Color', [0.5 0.5 0.5], 'LineWidth', 1.2);
+
+    xlabel(ax2, 'Error (mmHg)', 'FontSize', 11);
+    ylabel(ax2, 'Count',        'FontSize', 11);
+    title(ax2,  'Error Distribution', 'FontSize', 12);
+
+    % ---- Bottom right: stats text box ----------------------------------
+    statsStr = {
+        sprintf('n            = %d',         numRuns),
+        sprintf('MAE          = %.2f mmHg',  mae),
+        sprintf('Bias         = %.2f mmHg',  bias),
+        sprintf('5th  pct     = %.2f mmHg',  p5),
+        sprintf('95th pct     = %.2f mmHg',  p95),
+        '',
+        sprintf('Within ±5  mmHg : %d/%d  (%.1f%%)', n5,  numRuns, n5/max(numRuns,1)*100),
+        sprintf('Within ±10 mmHg : %d/%d  (%.1f%%)', n10, numRuns, n10/max(numRuns,1)*100),
+    };
+
+    annotation(parentTab, 'textbox', [0.54, 0.08, 0.40, 0.22], ...
+        'String', statsStr, ...
+        'FontSize', 10, 'FontName', 'FixedWidth', ...
+        'EdgeColor', [0.75 0.75 0.75], 'BackgroundColor', [0.97 0.97 0.97], ...
+        'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left', ...
+        'Interpreter', 'none');
+
+    % ---- Footer --------------------------------------------------------
+    annotation(parentTab, 'textbox', [0.01, 0.01, 0.98, 0.025], ...
+        'String', 'Green = within ±5 mmHg  |  Yellow = within ±10 mmHg  |  Red = outside ±10 mmHg  |  Positive = Ensemble reads HIGH vs ground truth', ...
+        'FontSize', 9, 'EdgeColor', 'none', ...
+        'HorizontalAlignment', 'center', 'Color', [0.4 0.4 0.4], 'Interpreter', 'none');
+end
+
