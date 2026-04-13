@@ -11,8 +11,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Wire1 pins on the master – choose GPIO pins not already in use
-#define INTER_ESP_SDA  25
-#define INTER_ESP_SCL  26
+#define INTER_ESP_SDA  19
+#define INTER_ESP_SCL  18
 
 // I2C address the display-board slave responds on
 #define SLAVE_I2C_ADDR 0x42

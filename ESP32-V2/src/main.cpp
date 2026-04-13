@@ -7,6 +7,7 @@
 #include "DisplayPresenter.h"
 #include "SerialLogger.h"
 #include "DataLogger.h"
+#include "i2c_comms.h"
 
 #include "BPMonitor.h"
 #include "SystolicDetector.h"
@@ -16,22 +17,22 @@
 #include "MotorController.h"
 
 // ── I2C master → display-board ────────────────────────────────────────────────
-// Shares Wire bus (GPIO 21 SDA / 22 SCL) with MPRLS sensor and LCD.
+// Shares Wire1 bus (GPIO 21 SDA / 22 SCL) with MPRLS sensor and LCD.
 // Display board listens as slave at 0x42  (SDA=IO32, SCL=IO25).
 // Wiring: Master GPIO21 → Display IO32 (SDA)
 //         Master GPIO22 → Display IO25 (SCL)
 //         Shared GND
 // The MPRLS and LCD already provide pull-up resistors on this bus.
 
-// Scan Wire bus and print every address that ACKs.
+// Scan Wire1 bus and print every address that ACKs.
 // Safe to call because MPRLS/LCD pull-ups keep the bus properly terminated.
 void scanI2CBus()
 {
-    Serial.println("[I2C] Scanning Wire bus (GPIO21 SDA / GPIO22 SCL)...");
+    Serial.println("[I2C] Scanning Wire1 bus (GPIO21 SDA / GPIO22 SCL)...");
     int found = 0;
     for (uint8_t addr = 0x08; addr < 0x78; addr++) {
-        Wire.beginTransmission(addr);
-        if (Wire.endTransmission() == 0) {
+        Wire1.beginTransmission(addr);
+        if (Wire1.endTransmission() == 0) {
             Serial.print("[I2C] Device found at 0x");
             if (addr < 0x10) Serial.print("0");
             Serial.println(addr, HEX);
@@ -53,8 +54,8 @@ void scanI2CBus()
 // Probe display slave at 0x42 specifically
 bool testSlaveConnection()
 {
-    Wire.beginTransmission(SLAVE_I2C_ADDR);
-    uint8_t err = Wire.endTransmission();
+    Wire1.beginTransmission(SLAVE_I2C_ADDR);
+    uint8_t err = Wire1.endTransmission();
     if (err == 0) {
         Serial.println("[I2C] Display slave detected at 0x42 — handshake OK");
         return true;
@@ -68,7 +69,7 @@ bool testSlaveConnection()
 }
 
 // Send pressure float to display-board.
-// Uses 2-second backoff after any failure + Wire bus reset to prevent
+// Uses 2-second backoff after any failure + Wire1 bus reset to prevent
 // a stuck slave from corrupting subsequent MPRLS reads on the same bus.
 static uint32_t _lastDebugMs  = 0;
 static uint32_t _lastErrMs    = 0;
@@ -79,19 +80,19 @@ void sendToDisplay(float pressure)
     uint32_t now = millis();
     if (now < _retryAfterMs) return;   // backing off after a previous failure
 
-    Wire.beginTransmission(SLAVE_I2C_ADDR);
-    Wire.write(reinterpret_cast<const uint8_t*>(&pressure), sizeof(float));
-    uint8_t err = Wire.endTransmission();
+    Wire1.beginTransmission(SLAVE_I2C_ADDR);
+    Wire1.write(reinterpret_cast<const uint8_t*>(&pressure), sizeof(float));
+    uint8_t err = Wire1.endTransmission();
 
     if (err != 0) {
         _retryAfterMs = now + 2000;    // don't retry for 2 s
 
         // A failed endTransmission (especially err=263 timeout) can leave
         // SCL or SDA stuck low, killing subsequent MPRLS requestFrom() calls.
-        // Re-initialising Wire recovers the bus.
-        Wire.end();
+        // Re-initialising Wire1 recovers the bus.
+        Wire1.end();
         delay(5);
-        Wire.begin();   // master on GPIO 21 SDA / 22 SCL
+        Wire1.begin(INTER_ESP_SDA, INTER_ESP_SCL);
 
         if (now - _lastErrMs >= 2000) {
             _lastErrMs = now;
@@ -140,7 +141,8 @@ void setup()
 {
     Serial.begin(115200);
     Wire.begin();   // GPIO 21 SDA / 22 SCL — shared by MPRLS, LCD, and display board
-    Serial.println("[I2C] Wire initialized (SDA=GPIO21, SCL=GPIO22)");
+    Wire1.begin(INTER_ESP_SDA, INTER_ESP_SCL);  // GPIO 21 SDA / 22 SCL — shared by MPRLS, LCD, and display board
+    Serial.println("[I2C] Wire1 initialized (SDA=GPIO21, SCL=GPIO22)");
     delay(200);     // give display-board time to boot its slave
     scanI2CBus();
     testSlaveConnection();
