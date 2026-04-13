@@ -339,8 +339,13 @@ std::vector<RunData> splitIntoRuns(const CSVData& data, BPMonitor& monitor) {
     
     for (const auto& row : data.rows) {
         BPMeasurement measurement;
-        measurement.pressure = row.pressure;
-        measurement.timestamp = row.time;
+
+        try {
+            measurement.pressure = row.pressure;
+            measurement.timestamp = row.time;
+        } catch(const std::exception& e) {
+            break;
+        }
         
         if (data.hasRawPPG) {
             float filtered = filter.filter((float)row.rawPPGSignal);
@@ -415,6 +420,18 @@ void printRunResults(BPMonitor& monitor, const std::string& filename, int runNum
               << " - " << ensembleResult.confidenceIntervalHigh << "] mmHg\n";
     std::cout << "Agreement: " << ensembleResult.agreementCount << "/" 
               << ensembleResult.totalDetectors << " detectors\n";
+
+    std::cout << "getEnsemble finished" << std::endl;
+    BPResult bestResult = monitor.getBestResult();
+    std::cout << "\n*** BEST RESULT ***\n";
+    std::cout << "Systolic: " << std::fixed << std::setprecision(0) << bestResult.systolic << " mmHg\n";
+    std::cout << "Confidence: " << std::setprecision(3) << bestResult.confidence << "\n";
+    std::cout << "95% CI: [" << std::setprecision(0) << bestResult.confidenceIntervalLow 
+              << " - " << bestResult.confidenceIntervalHigh << "] mmHg\n";
+    std::cout << "Agreement: " << bestResult.agreementCount << "/" 
+              << bestResult.totalDetectors << " detectors\n";
+    std::cout << "getBest finished" << std::endl;
+    
 
     float map = monitor.getMAP();
     std::cout << "MAP: " << map << " mmHg\n";
@@ -505,8 +522,13 @@ std::pair<int,int> outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
     
     // Ensemble Result
     BPResult result = monitor.getEnsembleResult();
+    BPResult bestResult = monitor.getBestResult();
     out << "Ensemble,0,"
         << std::fixed << std::setprecision(0) << result.systolic
+        << ",0\n";
+
+    out << "BestConf,0,"
+        << std::fixed << std::setprecision(0) << bestResult.systolic
         << ",0\n";
     
     out << "AusSys,0,"
@@ -573,13 +595,16 @@ void outputRunReport(BPMonitor& monitor, const std::string& outputFile, int runN
     out << "=== Blood Pressure Measurement Report - Run #" << runNumber << " ===\n\n";
     float map = monitor.getMAP();
     BPResult ensembleResult = monitor.getEnsembleResult();
+    BPResult bestResult = monitor.getBestResult();
     out << "Systolic: \n";
     out << "Auscultatory Systolic   : " << std::fixed << std::setprecision(0) << aus_sbp << " mmHg (GROUND TRUTH)\n";
     out << "Ensemble Systolic       : " << std::fixed << std::setprecision(0) << ensembleResult.systolic << " mmHg\n";
+    out << "Top Systolic            : " << std::fixed << std::setprecision(0) << bestResult.systolic << " mmHg\n";
     out << "Oscillometric Systolic  : " << monitor.getMAPDetector()->getSystolic() << " mmHg\n";
     if (omron_sbp != -1) 
         out << "Omron Systolic          : " << omron_sbp << " mmHg\n";
 
+        
     out << "\nDiastolic:\n";
 
     float DBP = -1.0;

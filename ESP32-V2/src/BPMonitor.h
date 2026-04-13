@@ -111,6 +111,7 @@ public:
     
     // Get ensemble result with confidence interval
     BPResult getEnsembleResult() const;
+    BPResult getBestResult() const;
     
     // Get baseline heart rate info
     HeartRateRange getBaselineHeartRate() const;

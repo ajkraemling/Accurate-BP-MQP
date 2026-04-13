@@ -569,3 +569,132 @@ BPResult BPMonitor::getEnsembleResult() const
 
     return result;
 }
+
+BPResult BPMonitor::getBestResult() const
+{
+    struct DetectorReading {
+        float pressure;
+        float weight;
+    };
+
+    static DetectorReading readings[MAX_DETECTORS * MAX_READINGS_PER_DETECTOR];
+
+    BPResult result{};
+    result.systolic = 0.0f;
+    result.confidence = 0.0f;
+    result.confidenceIntervalLow = 0.0f;
+    result.confidenceIntervalHigh = 0.0f;
+    result.agreementCount = 0;
+    result.totalDetectors = detectorCount;
+
+    if (detectorCount <= 0)
+        return result;
+
+    const int MAX_TOTAL_READINGS = MAX_DETECTORS * MAX_READINGS_PER_DETECTOR;
+    int readingCount = 0;
+
+    // --- 1. Collect hypotheses ---
+    for (int i = 0; i < detectorCount; i++)
+    {
+        if (readingCount >= MAX_TOTAL_READINGS)
+            break;
+
+        if (detectors[i] == nullptr)
+            continue;
+
+        DetectionRecord top[MAX_READINGS_PER_DETECTOR];
+        int actualCount = 0;
+        detectors[i]->getTopDetections(top, MAX_READINGS_PER_DETECTOR, &actualCount);
+
+        for (int j = 0; j < actualCount; j++)
+        {
+            if (readingCount >= MAX_TOTAL_READINGS)
+                break;
+
+            float p = top[j].pressure;
+            float w = top[j].confidence;
+
+            if (p <= 0.0f || p >= 185.0f)
+                continue;
+
+            if (!isfinite(p) || !isfinite(w))
+                continue;
+
+            readings[readingCount].pressure = p;
+            readings[readingCount].weight   = w;
+            readingCount++;
+        }
+    }
+
+    if (readingCount <= 0)
+        return result;
+
+    // --- 2. Find the highest confidence value ---
+    float maxWeight = -1.0f;
+    for (int i = 0; i < readingCount; i++)
+    {
+        if (readings[i].weight > maxWeight)
+            maxWeight = readings[i].weight;
+    }
+
+    // --- 3. Average all readings that share the highest confidence ---
+    float pressureSum = 0.0f;
+    int   groupCount  = 0;
+
+    for (int i = 0; i < readingCount; i++)
+    {
+        if (fabsf(readings[i].weight - maxWeight) < 0.000001f)
+        {
+            pressureSum += readings[i].pressure;
+            groupCount++;
+        }
+    }
+
+    if (groupCount <= 0)
+        return result;
+
+    result.systolic      = pressureSum / (float)groupCount;
+    result.confidence    = maxWeight;
+    result.agreementCount = groupCount;
+
+    if (!isfinite(result.systolic))
+        return result;
+
+    // --- 4. Confidence interval based on spread within the group ---
+    float varianceSum = 0.0f;
+    for (int i = 0; i < readingCount; i++)
+    {
+        if (fabsf(readings[i].weight - maxWeight) < 0.000001f)
+        {
+            float diff = readings[i].pressure - result.systolic;
+            varianceSum += diff * diff;
+        }
+    }
+
+    float stdDev = (groupCount > 1) ? sqrtf(varianceSum / (float)groupCount) : 0.0f;
+
+    if (!isfinite(stdDev))
+        stdDev = 0.0f;
+
+    float standardError = (groupCount > 0) ? stdDev / sqrtf((float)groupCount) : 0.0f;
+    float ciMultiplier  = 1.96f * (2.0f - result.confidence);
+
+    result.confidenceIntervalLow  = result.systolic - (ciMultiplier * standardError);
+    result.confidenceIntervalHigh = result.systolic + (ciMultiplier * standardError);
+
+    if (!isfinite(result.confidenceIntervalLow) || !isfinite(result.confidenceIntervalHigh))
+    {
+        result.confidenceIntervalLow  = result.systolic - 2.0f;
+        result.confidenceIntervalHigh = result.systolic + 2.0f;
+    }
+
+    // --- 5. Enforce minimum ±2 mmHg CI ---
+    float halfWidth = (result.confidenceIntervalHigh - result.confidenceIntervalLow) / 2.0f;
+    if (halfWidth < 2.0f)
+    {
+        result.confidenceIntervalLow  = result.systolic - 2.0f;
+        result.confidenceIntervalHigh = result.systolic + 2.0f;
+    }
+
+    return result;
+}
