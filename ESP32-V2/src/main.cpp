@@ -15,7 +15,105 @@
 
 #include "MotorController.h"
 
-// Declare objects 
+// ── I2C master → display-board ────────────────────────────────────────────────
+// Shares Wire bus (GPIO 21 SDA / 22 SCL) with MPRLS sensor and LCD.
+// Display board listens as slave at 0x42  (SDA=IO32, SCL=IO25).
+// Wiring: Master GPIO21 → Display IO32 (SDA)
+//         Master GPIO22 → Display IO25 (SCL)
+//         Shared GND
+// The MPRLS and LCD already provide pull-up resistors on this bus.
+
+// Scan Wire bus and print every address that ACKs.
+// Safe to call because MPRLS/LCD pull-ups keep the bus properly terminated.
+void scanI2CBus()
+{
+    Serial.println("[I2C] Scanning Wire bus (GPIO21 SDA / GPIO22 SCL)...");
+    int found = 0;
+    for (uint8_t addr = 0x08; addr < 0x78; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            Serial.print("[I2C] Device found at 0x");
+            if (addr < 0x10) Serial.print("0");
+            Serial.println(addr, HEX);
+            found++;
+        }
+    }
+    if (found == 0) {
+        Serial.println("[I2C] No devices found — check MPRLS and LCD wiring");
+    } else {
+        Serial.print("[I2C] ");
+        Serial.print(found);
+        Serial.println(" device(s) found");
+        if (found > 0) {
+            Serial.println("[I2C] Expected: MPRLS (~0x18), LCD (0x27), display (0x42)");
+        }
+    }
+}
+
+// Probe display slave at 0x42 specifically
+bool testSlaveConnection()
+{
+    Wire.beginTransmission(SLAVE_I2C_ADDR);
+    uint8_t err = Wire.endTransmission();
+    if (err == 0) {
+        Serial.println("[I2C] Display slave detected at 0x42 — handshake OK");
+        return true;
+    }
+    Serial.print("[I2C] ERROR: display slave not found at 0x42 (err=");
+    Serial.print(err);
+    Serial.println(")");
+    Serial.println("[I2C]  err=2   -> NACK: display not connected or wrong address");
+    Serial.println("[I2C]  err=263 -> TIMEOUT: check GPIO21->IO32, GPIO22->IO25, and GND");
+    return false;
+}
+
+// Send pressure float to display-board.
+// Uses 2-second backoff after any failure + Wire bus reset to prevent
+// a stuck slave from corrupting subsequent MPRLS reads on the same bus.
+static uint32_t _lastDebugMs  = 0;
+static uint32_t _lastErrMs    = 0;
+static uint32_t _retryAfterMs = 0;
+
+void sendToDisplay(float pressure)
+{
+    uint32_t now = millis();
+    if (now < _retryAfterMs) return;   // backing off after a previous failure
+
+    Wire.beginTransmission(SLAVE_I2C_ADDR);
+    Wire.write(reinterpret_cast<const uint8_t*>(&pressure), sizeof(float));
+    uint8_t err = Wire.endTransmission();
+
+    if (err != 0) {
+        _retryAfterMs = now + 2000;    // don't retry for 2 s
+
+        // A failed endTransmission (especially err=263 timeout) can leave
+        // SCL or SDA stuck low, killing subsequent MPRLS requestFrom() calls.
+        // Re-initialising Wire recovers the bus.
+        Wire.end();
+        delay(5);
+        Wire.begin();   // master on GPIO 21 SDA / 22 SCL
+
+        if (now - _lastErrMs >= 2000) {
+            _lastErrMs = now;
+            Serial.print("[I2C] Send failed (err=");
+            Serial.print(err);
+            Serial.print(") — ");
+            if (err == 2)        Serial.println("display NACK: not connected or wrong addr");
+            else if (err == 263) Serial.println("TIMEOUT: check GPIO21->IO32, GPIO22->IO25, and GND");
+            else                 Serial.println("bus error — bus reset attempted");
+        }
+    } else {
+        _retryAfterMs = 0;   // clear backoff on success
+        if (now - _lastDebugMs >= 500) {
+            _lastDebugMs = now;
+            Serial.print("[I2C] Sending pressure: ");
+            Serial.print((int)pressure);
+            Serial.println(" mmHg");
+        }
+    }
+}
+
+// Declare objects
 
 PressureSensor pressureSensor; 
 PPGSensor ppgSensor(PPG_PIN);
@@ -41,7 +139,11 @@ int runNumber = 1;
 void setup()
 {
     Serial.begin(115200);
-    Wire.begin();
+    Wire.begin();   // GPIO 21 SDA / 22 SCL — shared by MPRLS, LCD, and display board
+    Serial.println("[I2C] Wire initialized (SDA=GPIO21, SCL=GPIO22)");
+    delay(200);     // give display-board time to boot its slave
+    scanI2CBus();
+    testSlaveConnection();
 
     Serial.println("Start");
     // sensors
@@ -152,6 +254,9 @@ void loop()
 
     // Update display screen
     presenter.showStatus(bpMonitor.getStatus());
+
+    // Send live pressure to display-board over I2C
+    sendToDisplay(pressure);
 
     // Get auscultatory beat readings
     int button_not_pressed = digitalRead(13);

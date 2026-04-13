@@ -33,6 +33,14 @@
 
 // Ensemble Reporting
 #define MAX_DETECTIONS 10
-#define MAX_DETECTORS 5000
+#define MAX_DETECTORS 200   // 144 detectors used (80+40+24); 5000 overflows DRAM by ~1.9 MB
+
+// Inter-ESP32 I2C
+// Master uses Wire (GPIO 21 SDA / 22 SCL) — same bus as MPRLS and LCD (addr 0x27).
+// Display board is simply another slave on that bus at address 0x42.
+// Wiring: Master GPIO21 → Display IO32 (SDA)
+//         Master GPIO22 → Display IO25 (SCL)
+//         Shared GND
+#define SLAVE_I2C_ADDR 0x42
 
 #endif
