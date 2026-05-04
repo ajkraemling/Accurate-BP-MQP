@@ -482,7 +482,7 @@ std::pair<int,int> outputRunCSV(const CSVData& originalData, BPMonitor& monitor,
         
         // AUS_PULSE_HEARD (optional - button press)
         if (originalData.hasAusPulseHeard) {
-            if (row.ausPulseHeard == 0) {
+            if (row.ausPulseHeard == 1) {
                 if (aus_sbp == -1) aus_sbp = row.pressure;
                 aus_dbp = row.pressure;
                 out << ",1";
