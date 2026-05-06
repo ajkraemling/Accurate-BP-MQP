@@ -239,7 +239,7 @@ void loop()
 
         Serial.println("#SUMMARY_END");
 
-        presenter.showStatus(bpMonitor.getStatus());
+        presenter.showResult(result.systolic, DBP, bpMonitor.getBaselineBPM());
 
         // Complete measurement
         while (true) {

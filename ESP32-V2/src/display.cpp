@@ -4,6 +4,8 @@ Display::Display() : lcd(LCD_I2C_ADDR) {}
 
 bool Display::begin()
 {
+    lcd.init();
+    lcd.backlight();
     int status = lcd.begin(LCD_COLS, LCD_ROWS);
     if (status)
     {

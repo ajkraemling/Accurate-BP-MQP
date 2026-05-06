@@ -34,8 +34,16 @@ void DisplayPresenter::showCountdown(int seconds)
     strncpy(line2Buffer, "Place finger on", sizeof(line2Buffer) - 1);
     strncpy(line3Buffer, "sensor...", sizeof(line3Buffer) - 1);
     snprintf(line4Buffer, sizeof(line4Buffer), "%d...", seconds);
-    
+
     display->showLines(line1Buffer, line2Buffer, line3Buffer, line4Buffer);
+}
+
+void DisplayPresenter::showResult(int systolic, int diastolic, int bpm)
+{
+    snprintf(line1Buffer, sizeof(line1Buffer), "BP: %d/%d mmHg", systolic, diastolic);
+    snprintf(line2Buffer, sizeof(line2Buffer), "BPM: %d", bpm);
+    
+    display->showLines(line1Buffer, line2Buffer);
 }
 
 void DisplayPresenter::showCalibrating()

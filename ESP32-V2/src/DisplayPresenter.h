@@ -28,6 +28,7 @@ public:
     
     void showStatus(const BPStatus& status);
     void showCountdown(int seconds);
+    void showResult(int systolic, int diastolic, int bpm);
     void showCalibrating();
     void showReady();
     void showError(const char* message);
